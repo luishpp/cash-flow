@@ -1,0 +1,103 @@
+# docker-compose.yml — Orquestração local do CashFlow (ADR-008).
+# Sobe: PostgreSQL + RabbitMQ + 2 APIs.
+# Healthchecks garantem que APIs só iniciam quando deps estão prontas.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cashflow-postgres
+    environment:
+      POSTGRES_DB: cashflow
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d cashflow"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - cashflow-net
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: cashflow-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - cashflow-net
+
+  api-transactions:
+    build:
+      context: .
+      dockerfile: src/CashFlow.Transactions.API/Dockerfile
+    container_name: cashflow-transactions
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=cashflow;Username=app_transactions;Password=transactions_pwd;Include Error Detail=true"
+      RabbitMq__Host: rabbitmq
+      RabbitMq__User: guest
+      RabbitMq__Password: guest
+      # JWT — ADR-016. Mesma chave/audience em ambos os APIs.
+      # ⚠️ Em produção: ler de Key Vault, NUNCA do compose.
+      Authentication__Jwt__Issuer: cashflow
+      Authentication__Jwt__Audience: cashflow-api
+      Authentication__Jwt__SecretKey: "demo-only-symmetric-key-min-32-bytes-please-change"
+      Authentication__Jwt__TokenExpirationMinutes: "15"
+      # Lockout (ADR-023) + Refresh tokens (ADR-024) — apenas na Transactions API (host do /auth).
+      Authentication__Lockout__MaxFailedAttempts: "5"
+      Authentication__Lockout__LockoutDuration: "00:15:00"
+      Authentication__RefreshToken__Lifetime: "7.00:00:00"
+      Authentication__RefreshToken__TokenBytes: "32"
+    ports:
+      - "5001:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - cashflow-net
+
+  api-balance:
+    build:
+      context: .
+      dockerfile: src/CashFlow.Balance.API/Dockerfile
+    container_name: cashflow-balance
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=cashflow;Username=app_balance;Password=balance_pwd;Include Error Detail=true"
+      RabbitMq__Host: rabbitmq
+      RabbitMq__User: guest
+      RabbitMq__Password: guest
+      # JWT — ADR-015. Mesma chave/audience que Transactions API para que os tokens sejam válidos aqui.
+      Authentication__Jwt__Issuer: cashflow
+      Authentication__Jwt__Audience: cashflow-api
+      Authentication__Jwt__SecretKey: "demo-only-symmetric-key-min-32-bytes-please-change"
+      Authentication__Jwt__TokenExpirationMinutes: "15"
+    ports:
+      - "5002:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - cashflow-net
+
+volumes:
+  postgres_data:
+
+networks:
+  cashflow-net:
+    driver: bridge

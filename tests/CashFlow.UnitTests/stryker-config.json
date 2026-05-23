@@ -1,0 +1,37 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-net/master/docs/stryker-config.schema.json",
+  "stryker-config": {
+    "project-info": {
+      "name": "CashFlow",
+      "module": "UnitTests"
+    },
+
+    "test-projects": [
+      "CashFlow.UnitTests.csproj"
+    ],
+
+    "mutate": [
+      "**/Domain/**/*.cs",
+      "!**/Domain/Exceptions/*.cs"
+    ],
+
+    "ignore-methods": [
+      "ToString",
+      "GetHashCode",
+      "Equals"
+    ],
+
+    "thresholds": {
+      "high": 85,
+      "low": 70,
+      "break": 70
+    },
+
+    "reporters": [
+      "html",
+      "json",
+      "progress",
+      "cleartext"
+    ]
+  }
+}

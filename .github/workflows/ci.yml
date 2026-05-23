@@ -1,0 +1,83 @@
+# CI — build + testes (unit + architecture + BDD).
+# Não inclui carga (NBomber) porque exige stack completa via docker compose — rodado localmente.
+# Decisão documentada em docs/adrs/adr-018-github-actions-ci.md.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+
+jobs:
+  build-and-test:
+    name: Build & Test (.NET 10)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Cache NuGet
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore
+        run: dotnet restore CashFlow.sln
+
+      - name: Build
+        run: dotnet build CashFlow.sln --configuration Release --no-restore
+
+      - name: Test (Unit)
+        run: >-
+          dotnet test tests/CashFlow.UnitTests/CashFlow.UnitTests.csproj
+          --configuration Release
+          --no-build
+          --logger "trx;LogFileName=unit.trx"
+          --results-directory ${{ github.workspace }}/TestResults
+          --collect:"XPlat Code Coverage"
+
+      - name: Test (Architecture — fitness functions)
+        run: >-
+          dotnet test tests/CashFlow.Architecture.Tests/CashFlow.Architecture.Tests.csproj
+          --configuration Release
+          --no-build
+          --logger "trx;LogFileName=architecture.trx"
+          --results-directory ${{ github.workspace }}/TestResults
+
+      - name: Test (BDD — Reqnroll)
+        run: >-
+          dotnet test tests/CashFlow.Bdd.Tests/CashFlow.Bdd.Tests.csproj
+          --configuration Release
+          --no-build
+          --logger "trx;LogFileName=bdd.trx"
+          --results-directory ${{ github.workspace }}/TestResults
+
+      - name: Publish test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: ${{ github.workspace }}/TestResults
+          retention-days: 7

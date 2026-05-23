@@ -1,69 +1,86 @@
-# Fluxo de Caixa — Controle de Lançamentos e Consolidado Diário
+# CashFlow — Controle de Lançamentos e Saldo Diário Consolidado
+
+[![CI](https://github.com/luishpp/cash-flow/actions/workflows/ci.yml/badge.svg)](https://github.com/luishpp/cash-flow/actions/workflows/ci.yml)
 
 Sistema para controle de fluxo de caixa diário de um comerciante, com registro de lançamentos (débitos e créditos) e consulta de saldo diário consolidado.
 
+> **Desafio Arquiteto de Software.** Toda a análise, ADRs (decisões com trade-offs), RNFs (requisitos não-funcionais) e diagramas C4 estão em [`docs/`](docs/). Comece por [`docs/analysis/analise-desafio-arquiteto.md`](docs/analysis/analise-desafio-arquiteto.md).
+
+## Glossário de termos
+
+O **domínio** é descrito em português (linguagem do negócio); o **código** usa identificadores em inglês. Este glossário liga os dois.
+
+| Termo de negócio (pt-br) | Identificador no código (en-us) | Definição |
+|---|---|---|
+| **Lançamento** | `Transaction` | Movimentação financeira individual (débito ou crédito) registrada pelo comerciante. Persistido em `transactions.transactions`. |
+| **Saldo consolidado / Consolidado** | `Balance` *(bounded context)* | Projeção de leitura agregada por dia, derivada dos lançamentos do dia. Implementado pela `CashFlow.Balance.API`. |
+| **Saldo diário** | `DailyBalance` *(entidade)* | A projeção propriamente dita — uma linha por data com `total_credits`, `total_debits` e `balance` (derivado). Persistida em `balance.daily_balance`. |
+| **Evento de lançamento registrado** | `TransactionRegistered` | Evento de domínio publicado pela Transactions API após persistir um lançamento; consumido pela Balance API para atualizar a projeção. |
+| **Crédito / Débito** | `Credit` / `Debit` | Tipos de lançamento (entrada / saída financeira). |
+| **Idempotência do consumer** | `processed_events` | Tabela auxiliar que garante que reentregas at-least-once do RabbitMQ não dupliquem o saldo. |
+
+**Por que essa separação:** mantém a análise de negócio (persona, jornada, RNFs) legível para stakeholders brasileiros, sem sacrificar a uniformidade do código (identificadores en-us, comentários em pt-br).
+
 ## Arquitetura
 
-O sistema é composto por dois serviços independentes que se comunicam de forma assíncrona via mensageria:
+O sistema é composto por **dois serviços independentes** que se comunicam de forma assíncrona via mensageria:
 
-- **API de Lançamentos** — registra débitos e créditos (write side)
-- **API de Consolidado** — expõe o saldo diário consolidado (read side)
-- **Worker de Consolidação** — consome eventos de lançamento e atualiza a projeção de saldo
+- **Transactions API** — registra débitos e créditos (write side). Também hospeda `POST /api/v1/auth/login` para emissão de JWT.
+- **Balance API** — expõe o saldo diário consolidado (read side). Hospeda um `BackgroundService` que consome eventos `TransactionRegistered` e mantém a projeção atualizada.
 
-O serviço de lançamentos **não depende** do consolidado. Se o Worker ou a API de Consolidado caírem, os lançamentos continuam operando normalmente e as mensagens ficam na fila até serem processadas.
+A Transactions API **não depende** da Balance API. Se o consumer ou a Balance API caírem, os lançamentos continuam operando normalmente e as mensagens ficam na fila até serem processadas.
 
+```text
+              ┌─────────────────┐               ┌──────────────────────┐
+              │  Transactions   │               │      Balance         │
+              │     API :5001   │               │       API :5002      │
+              │   (write side)  │               │  + BackgroundService │
+              │   + /auth/login │               │  + RateLimiter 50/s  │
+              └───┬─────────┬───┘               └────┬────────────┬────┘
+                  │         │                        │            │
+                  │         ▼                        ▼            │
+                  │   ┌──────────┐         ┌────────────────┐     │
+                  │   │ RabbitMQ │────────▶│  consumer in   │     │
+                  │   │  :5672   │  AMQP   │  same process  │     │
+                  │   │  :15672  │         └────────────────┘     │
+                  │   └──────────┘                                │
+                  │                                               │
+                  ▼                                               ▼
+            ┌─────────────────────────────────────────────────────────┐
+            │             PostgreSQL :5432 — db: cashflow             │
+            │  schema: transactions         schema: balance           │
+            │  user: app_transactions       user: app_balance         │
+            │  (GRANT restrito)             (GRANT restrito)          │
+            └─────────────────────────────────────────────────────────┘
 ```
-                  ┌─────────────────┐               ┌─────────────────┐
-                  │ API Lançamentos │               │ API Consolidado │
-                  │   :5001         │               │   :5002         │
-                  └───┬─────────┬───┘               └────────┬────────┘
-                      │         │                            │
-                      ▼         ▼                            ▼
-               ┌──────────┐ ┌──────────┐           ┌────────────────┐
-               │PostgreSQL│ │ RabbitMQ │           │  PostgreSQL    │
-               │  :5432   │ │  :5672   │           │    :5432       │
-               │ (db lanç)│ └────┬─────┘           │ (db consolid.) │
-               └──────────┘      │                 └───────▲────────┘
-                                 ▼                         │
-                          ┌─────────────┐                  │
-                          │   Worker    │──────────────────┘
-                          │ Consolidação│
-                          └─────────────┘
-```
+
+**Decisões-chave** (detalhes em [`docs/adrs/`](docs/adrs/) — 19 ADRs no total):
+
+- **CQRS** — separação write/read ([ADR-001](docs/adrs/adr-001-cqrs.md)).
+- **EDA com RabbitMQ + MassTransit** — desacoplamento temporal; portabilidade para Azure Service Bus ([ADR-002](docs/adrs/adr-002-rabbitmq-masstransit.md)).
+- **1 PostgreSQL + 2 schemas com GRANTs** — isolamento lógico real, menos cerimônia que 2 databases ([ADR-003](docs/adrs/adr-003-postgres-schemas.md)).
+- **Consumer como `BackgroundService`** no MVP; processo dedicado é evolução documentada ([ADR-004](docs/adrs/adr-004-consumer-hostedservice.md)).
+- **Polly Retry** com idempotência via tabela `processed_events` ([ADR-005](docs/adrs/adr-005-polly-retry.md), [ADR-011](docs/adrs/adr-011-idempotency.md)).
+- **Rate limiting nativo** do ASP.NET Core 10 ([ADR-006](docs/adrs/adr-006-rate-limiting.md)).
+- **Runtime .NET 10 (LTS)** com runway até Nov/2028 ([ADR-014](docs/adrs/adr-014-dotnet-10.md)).
+- **Rich Domain Model** + **Dapper** + **DbUp** ([ADR-009](docs/adrs/adr-009-rich-domain-model.md), [ADR-010](docs/adrs/adr-010-dapper.md)).
+- **Application Services como dispatcher** (sem MediatR) ([ADR-015](docs/adrs/adr-015-application-services-no-mediatr.md)).
+- **JWT Bearer (15min) + Authorization Policies + hash Argon2id + lockout + refresh tokens com rotação** ([ADR-016](docs/adrs/adr-016-jwt-authentication.md), [ADR-021](docs/adrs/adr-021-argon2id-password-hashing.md), [ADR-023](docs/adrs/adr-023-account-lockout.md), [ADR-024](docs/adrs/adr-024-refresh-tokens-rotation.md)).
+- **Testes de arquitetura** (NetArchTest) + **BDD de domínio + E2E** (Reqnroll pt-BR + WebApplicationFactory + Testcontainers) ([ADR-012](docs/adrs/adr-012-architecture-tests.md), [ADR-017](docs/adrs/adr-017-bdd-reqnroll.md), [ADR-022](docs/adrs/adr-022-bdd-e2e-webapplicationfactory.md)).
+- **CI** (GitHub Actions) + **Load test** (NBomber) + **Mutation testing** (Stryker.NET) ([ADR-018](docs/adrs/adr-018-github-actions-ci.md), [ADR-019](docs/adrs/adr-019-load-test-nbomber.md), [ADR-020](docs/adrs/adr-020-stryker-mutation-testing.md)).
+
+Diagramas C4 completos em [`docs/diagrams/`](docs/diagrams/).
 
 ## Pré-requisitos
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) instalado e rodando
-- Portas disponíveis: `5001`, `5002`, `5432`, `5672`, `15672`
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) instalado e rodando.
+- Portas disponíveis: `5001`, `5002`, `5432`, `5672`, `15672`.
 
-Não é necessário ter .NET SDK, PostgreSQL ou RabbitMQ instalados localmente — tudo roda em containers.
+Não é necessário ter .NET SDK, PostgreSQL ou RabbitMQ instalados localmente para subir os serviços — tudo roda em containers. .NET 10 SDK só é necessário para rodar `dotnet test` ou o load test localmente.
 
 ## Como executar
 
-### Windows (PowerShell)
-
-```powershell
-# Clonar o repositório
-git clone https://github.com/<seu-usuario>/fluxo-de-caixa.git
-cd fluxo-de-caixa
-
-# Subir todos os serviços
-docker compose up --build -d
-
-# Verificar se tudo subiu
-docker compose ps
-
-# Ver logs em tempo real
-docker compose logs -f
-```
-
-### macOS / Linux (Terminal)
-
 ```bash
-# Clonar o repositório
-git clone https://github.com/<seu-usuario>/fluxo-de-caixa.git
-cd fluxo-de-caixa
-
 # Subir todos os serviços
 docker compose up --build -d
 
@@ -78,127 +95,281 @@ docker compose logs -f
 
 | Serviço | URL |
 |---|---|
-| API de Lançamentos (Swagger) | http://localhost:5001/swagger |
-| API de Consolidado (Swagger) | http://localhost:5002/swagger |
+| Transactions API (Swagger) | http://localhost:5001/swagger |
+| Balance API (Swagger) | http://localhost:5002/swagger |
 | RabbitMQ Management | http://localhost:15672 (guest/guest) |
+| Health Check (Transactions) | http://localhost:5001/health/ready |
+| Health Check (Balance) | http://localhost:5002/health/ready |
 
 ### Parar os serviços
 
 ```bash
 docker compose down
-```
 
-Para remover também os volumes (dados do banco):
-
-```bash
+# Remover também volumes (dados do banco):
 docker compose down -v
 ```
 
+## Autenticação (JWT Bearer)
+
+Ambos os APIs exigem token JWT. Faça login na Transactions API e use o mesmo token nas duas APIs (mesma chave/audience — [ADR-016](docs/adrs/adr-016-jwt-authentication.md)).
+
+**Usuário demo** (criado por `DemoUserSeeder` no primeiro startup, hash Argon2id armazenado em `transactions.app_users`):
+
+| Username | Password | Role |
+|---|---|---|
+| `carlos` | `S3cret!ChangeMe` | `Merchant` |
+
+> ⚠️ **MVP**: usuário demo seedado automaticamente. A senha **nunca** é persistida em claro — apenas o hash Argon2id (formato PHC, OWASP defaults: 64 MiB, 3 iterações). Em produção: lockout, refresh tokens, RSA/ECDSA + JWKS, OIDC via Microsoft Entra ID — caminho de evolução em [ADR-016](docs/adrs/adr-016-jwt-authentication.md) e [ADR-021](docs/adrs/adr-021-argon2id-password-hashing.md).
+
+**Obter access + refresh tokens:**
+
+```bash
+curl -X POST http://localhost:5001/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"carlos","password":"S3cret!ChangeMe"}'
+```
+
+Resposta:
+
+```json
+{
+  "accessToken": "eyJhbGciOi...",
+  "tokenType": "Bearer",
+  "expiresAtUtc": "2026-05-23T15:15:00+00:00",
+  "role": "Merchant",
+  "refreshToken": "9aQ7VxN3kP...",
+  "refreshTokenExpiresAtUtc": "2026-05-30T15:00:00+00:00"
+}
+```
+
+**Renovar access token (rotação do refresh — ADR-024):**
+
+```bash
+curl -X POST http://localhost:5001/api/v1/auth/refresh \
+  -H "Content-Type: application/json" \
+  -d '{"refreshToken":"9aQ7VxN3kP..."}'
+```
+
+Retorna um par novo (access + refresh). O refresh anterior é **revogado** — chamar `/refresh` com ele de novo retorna 401.
+
+**Logout:**
+
+```bash
+curl -X POST http://localhost:5001/api/v1/auth/logout \
+  -H "Content-Type: application/json" \
+  -d '{"refreshToken":"9aQ7VxN3kP..."}'
+```
+
+Retorna 204. O access token continua válido até expirar (15 min) — aceitável dada a janela curta.
+
+**Lockout (ADR-023):** 5 tentativas falhas consecutivas travam a conta por 15 min. Mesmo a senha correta retorna 401 durante o lockout.
+
+**Via Swagger UI:** clique em **Authorize** (canto superior direito), cole o `accessToken` (sem prefixo `Bearer` — só o JWT), e teste qualquer endpoint protegido.
+
 ## Endpoints
 
-### API de Lançamentos (`http://localhost:5001`)
+> Todos os endpoints abaixo (exceto `/auth/login`) exigem `Authorization: Bearer <token>`.
+
+### Transactions API — `http://localhost:5001`
 
 | Método | Rota | Descrição |
 |---|---|---|
-| `POST` | `/api/lancamentos` | Registra um novo lançamento (débito ou crédito) |
-| `GET` | `/api/lancamentos?data={yyyy-MM-dd}` | Lista lançamentos de uma data |
-| `GET` | `/api/lancamentos/{id}` | Consulta um lançamento específico |
+| `POST` | `/api/v1/auth/login` | Emite access JWT (15min) + refresh token (7d) — anônimo |
+| `POST` | `/api/v1/auth/refresh` | Rotaciona refresh, emite par novo — anônimo |
+| `POST` | `/api/v1/auth/logout` | Revoga o refresh token — anônimo |
+| `POST` | `/api/v1/transactions` | Registra uma nova transação (débito ou crédito) |
+| `GET`  | `/api/v1/transactions/{id}` | Consulta uma transação específica |
+| `GET`  | `/api/v1/transactions?date={yyyy-MM-dd}` | Lista transações de uma data |
 
 **Exemplo — registrar um crédito (venda):**
 
 ```bash
-curl -X POST http://localhost:5001/api/lancamentos \
+TOKEN="eyJhbGciOi..."
+curl -X POST http://localhost:5001/api/v1/transactions \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "tipo": "credito",
-    "valor": 150.00,
-    "descricao": "Venda do dia"
+    "type": "credit",
+    "amount": 150.00,
+    "description": "Venda do dia",
+    "movementDate": "2026-05-22"
   }'
 ```
 
 **Exemplo — registrar um débito (despesa):**
 
 ```bash
-curl -X POST http://localhost:5001/api/lancamentos \
+curl -X POST http://localhost:5001/api/v1/transactions \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "tipo": "debito",
-    "valor": 45.50,
-    "descricao": "Compra de estoque"
+    "type": "debit",
+    "amount": 45.50,
+    "description": "Compra de estoque",
+    "movementDate": "2026-05-22"
   }'
 ```
 
-### API de Consolidado (`http://localhost:5002`)
+### Balance API — `http://localhost:5002`
 
 | Método | Rota | Descrição |
 |---|---|---|
-| `GET` | `/api/consolidado/{data}` | Saldo consolidado de uma data específica |
-| `GET` | `/api/consolidado?de={data}&ate={data}` | Saldo consolidado por período |
+| `GET` | `/api/v1/balance/{date}` | Saldo consolidado de uma data específica |
+| `GET` | `/api/v1/balance?from={date}&to={date}` | Saldo consolidado por período |
 
 **Exemplo — consultar saldo do dia:**
 
 ```bash
-curl http://localhost:5002/api/consolidado/2025-05-22
+curl http://localhost:5002/api/v1/balance/2026-05-22 \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 **Resposta esperada:**
 
 ```json
 {
-  "data": "2025-05-22",
-  "totalCreditos": 150.00,
-  "totalDebitos": 45.50,
-  "saldo": 104.50
+  "date": "2026-05-22",
+  "totalCredits": 150.00,
+  "totalDebits": 45.50,
+  "balance": 104.50,
+  "updatedAt": "2026-05-22T13:42:11+00:00"
 }
 ```
 
 ## Executar os testes
 
 ```bash
-# Testes unitários
-docker compose run --rm api-lancamentos dotnet test
+# Testes unitários (Rich Domain: Transaction, Money, DailyBalance, etc.)
+dotnet test ./tests/CashFlow.UnitTests
 
-# Ou, se tiver o .NET SDK instalado localmente:
-dotnet test ./tests/FluxoCaixa.Lancamentos.Tests
-dotnet test ./tests/FluxoCaixa.Consolidado.Tests
+# Testes de arquitetura (fitness functions — NetArchTest)
+dotnet test ./tests/CashFlow.Architecture.Tests
+
+# Testes BDD (Reqnroll, pt-BR — ADR-017 e ADR-022)
+# Inclui cenários E2E via WebApplicationFactory + Testcontainers Postgres → requer Docker.
+dotnet test ./tests/CashFlow.Bdd.Tests
+
+# Tudo de uma vez (108 testes: 85 unit + 8 architecture + 15 BDD)
+dotnet test
 ```
+
+### Teste de carga (RNF-02 — 50 req/s, máx 5% perda)
+
+```bash
+# Pré-requisito: docker compose up --build -d
+dotnet run --project tests/CashFlow.LoadTests --configuration Release
+```
+
+3.000 requisições a 50 req/s contra `GET /api/v1/balance/{date}` com validação automática do critério do RNF-02. Detalhes em [`tests/CashFlow.LoadTests/README.md`](tests/CashFlow.LoadTests/README.md) e [ADR-019](docs/adrs/adr-019-load-test-nbomber.md).
+
+### Testes de mutação (Stryker.NET)
+
+```bash
+dotnet tool restore                                              # uma vez
+cd tests/CashFlow.UnitTests
+dotnet stryker --project CashFlow.Transactions.API.csproj        # → ~91.09%
+dotnet stryker --project CashFlow.Balance.API.csproj             # → 100%
+```
+
+Mutation score ≥ 70% (configurado em `tests/CashFlow.UnitTests/stryker-config.json`). Reports HTML em `tests/CashFlow.UnitTests/StrykerOutput/<timestamp>/reports/mutation-report.html`. Também disponível como **workflow_dispatch** manual no GitHub Actions ([`.github/workflows/mutation.yml`](.github/workflows/mutation.yml)). Detalhes em [ADR-020](docs/adrs/adr-020-stryker-mutation-testing.md).
+
+## Integração Contínua
+
+Pipeline GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) dispara em `push: main` e `pull_request`:
+
+1. **Build** em configuração `Release` (.NET 10 SDK).
+2. **Unit tests** — 24 testes de domínio.
+3. **Architecture tests** — 8 fitness functions de Clean Architecture.
+4. **BDD tests** — 6 cenários Reqnroll pt-BR.
+5. **Upload** de TRX + cobertura como artifact (retenção 7 dias).
+
+Load test (NBomber) fica fora do CI automático por exigir stack completa — decisão documentada em [ADR-018](docs/adrs/adr-018-github-actions-ci.md).
 
 ## Stack tecnológica
 
-| Camada | Tecnologia |
-|---|---|
-| Runtime | .NET 8 / C# |
-| API | ASP.NET Minimal APIs |
-| ORM | Entity Framework Core + Npgsql |
-| Banco de Dados | PostgreSQL |
-| Mensageria | RabbitMQ + MassTransit |
-| Rate Limiting | `Microsoft.AspNetCore.RateLimiting` |
-| Resiliência | Polly (Retry + Circuit Breaker) |
-| Testes | xUnit + Moq + FluentAssertions |
-| Containers | Docker + Docker Compose |
+| Camada | Tecnologia | ADR |
+|---|---|---|
+| Runtime | .NET 10 / C# (LTS) | [ADR-014](docs/adrs/adr-014-dotnet-10.md) |
+| API | ASP.NET Core (Controllers) + Swagger | [ADR-013](docs/adrs/adr-013-security-observability.md) |
+| Autenticação | JWT Bearer (HMAC-SHA256, 15 min) + Authorization Policies + hash Argon2id + lockout + refresh tokens rotativos | [ADR-016](docs/adrs/adr-016-jwt-authentication.md), [ADR-021](docs/adrs/adr-021-argon2id-password-hashing.md), [ADR-023](docs/adrs/adr-023-account-lockout.md), [ADR-024](docs/adrs/adr-024-refresh-tokens-rotation.md) |
+| Persistência | Dapper + Npgsql | [ADR-010](docs/adrs/adr-010-dapper.md) |
+| Migrations | DbUp (SQL versionado) | [ADR-010](docs/adrs/adr-010-dapper.md) |
+| Banco | PostgreSQL 16 | [ADR-003](docs/adrs/adr-003-postgres-schemas.md) |
+| Mensageria | RabbitMQ + MassTransit | [ADR-002](docs/adrs/adr-002-rabbitmq-masstransit.md) |
+| Validação | FluentValidation | [ADR-013](docs/adrs/adr-013-security-observability.md) |
+| Rate Limiting | `Microsoft.AspNetCore.RateLimiting` | [ADR-006](docs/adrs/adr-006-rate-limiting.md) |
+| Resiliência | Polly v8 (Retry + Backoff + Jitter) | [ADR-005](docs/adrs/adr-005-polly-retry.md) |
+| Dispatcher | Application Services + DI direta (sem MediatR) | [ADR-015](docs/adrs/adr-015-application-services-no-mediatr.md) |
+| Testes Unitários | xUnit + FluentAssertions + Moq | — |
+| Testes de Arquitetura | NetArchTest.Rules | [ADR-012](docs/adrs/adr-012-architecture-tests.md) |
+| Testes BDD (domínio) | Reqnroll (sucessor open-source do SpecFlow) | [ADR-017](docs/adrs/adr-017-bdd-reqnroll.md) |
+| Testes BDD (E2E) | Reqnroll + WebApplicationFactory + Testcontainers Postgres | [ADR-022](docs/adrs/adr-022-bdd-e2e-webapplicationfactory.md) |
+| Testes de Carga | NBomber 6 | [ADR-019](docs/adrs/adr-019-load-test-nbomber.md) |
+| Testes de Mutação | Stryker.NET 4 (local tool) | [ADR-020](docs/adrs/adr-020-stryker-mutation-testing.md) |
+| CI | GitHub Actions (build + 3 suítes em PR; mutação em `workflow_dispatch`) | [ADR-018](docs/adrs/adr-018-github-actions-ci.md), [ADR-020](docs/adrs/adr-020-stryker-mutation-testing.md) |
+| Health Checks | `Microsoft.Extensions.Diagnostics.HealthChecks` | [ADR-013](docs/adrs/adr-013-security-observability.md) |
+| Logs | Serilog (console) | [ADR-013](docs/adrs/adr-013-security-observability.md) |
+| Containers | Docker + Docker Compose | [ADR-008](docs/adrs/adr-008-docker-compose.md) |
 
 ## Documentação do projeto
 
 | Documento | Descrição |
 |---|---|
-| [`docs/analise-desafio.md`](docs/analise-desafio.md) | Análise completa do desafio com decisões arquiteturais, diagramas C4, persona, jornada do usuário e estratégia de resiliência |
-| [`docs/adrs/`](docs/adrs/) | Architecture Decision Records — registro de cada decisão técnica com justificativa |
-| [`docs/diagrams/`](docs/diagrams/) | Diagramas C4 (Contexto, Containers, Componentes) |
+| [`docs/architecture.md`](docs/architecture.md) | **Visão arquitetural unificada** — estilo (CQRS + EDA + Clean Architecture + DDD), estrutura de módulos, regra de dependência, fluxos principais e bounded contexts. Leitura de ~15 min. |
+| [`docs/analysis/analise-desafio-arquiteto.md`](docs/analysis/analise-desafio-arquiteto.md) | Análise completa: contexto, persona, jornada, decisões arquiteturais, padrões aplicados, estrutura, evoluções futuras |
+| [`docs/rnfs/`](docs/rnfs/) | **9 RNFs** em arquivos individuais (Disponibilidade, Carga, Escalabilidade, Resiliência, Segurança, Padrões, Integração, Manutenibilidade, Observabilidade) |
+| [`docs/adrs/`](docs/adrs/) | **24 ADRs** em arquivos individuais com contexto, trade-offs explícitos, alternativas descartadas e configurações concretas |
+| [`docs/diagrams/`](docs/diagrams/) | Diagramas C4 em Mermaid (Contexto, Containers, Componentes) — renderizam no GitHub |
+| [`docs/challenge/`](docs/challenge/) | PDF original do desafio |
+| [`docs/references/`](docs/references/) | Material de estudo: dicionário arquitetural, RNFs→decisões, vaga, plano de preparação |
 
 ## Estrutura do projeto
 
-```
+```text
 /src
-  /FluxoCaixa.Lancamentos.API        API de Lançamentos
-  /FluxoCaixa.Consolidado.API        API de Consolidado
-  /FluxoCaixa.Consolidado.Worker     Worker de Consolidação
-  /FluxoCaixa.Shared                 Contratos de eventos
+  /CashFlow.Transactions.API    → Write side
+                                   (Domain/, Application/, Infrastructure/,
+                                    Controllers/, Infrastructure/Migrations/)
+  /CashFlow.Balance.API         → Read side + BackgroundService consumer
+                                   (Domain/, Application/, Infrastructure/,
+                                    Controllers/, Consumers/, Migrations/)
+  /CashFlow.Shared              → Contratos de eventos + Security (JWT/Policies)
 
 /tests
-  /FluxoCaixa.Lancamentos.Tests      Testes unitários e de integração
-  /FluxoCaixa.Consolidado.Tests      Testes unitários e de integração
+  /CashFlow.UnitTests              → Domínio (Transaction, Money, DailyBalance, AppUser, ...)
+  /CashFlow.Architecture.Tests     → Fitness functions (NetArchTest)
+  /CashFlow.Bdd.Tests              → Reqnroll pt-BR: domínio + E2E (WebApplicationFactory + Testcontainers)
+  /CashFlow.LoadTests              → NBomber — validação empírica do RNF-02
 
-/docs                                Documentação arquitetural
+/.github/workflows
+  ci.yml                           → CI: build + 3 suítes de teste (PR/push)
+  mutation.yml                     → Stryker.NET (workflow_dispatch manual)
+
+/.config
+  dotnet-tools.json                → Local tools (Stryker)
+
+/infra
+  /postgres/init.sql               → Criação de users + schemas + GRANTs
+
+/docs                                Documentação arquitetural (24 ADRs + 9 RNFs)
 docker-compose.yml                   Orquestração de todos os serviços
+CashFlow.sln                         Solution file
 README.md                            Este arquivo
 ```
+
+**3 projetos de produção + 4 de teste/carga.** Separação por pastas internas (`Domain/`, `Application/`, `Infrastructure/`) dentro de cada API demonstra Clean Architecture sem cerimônia de 11 projetos para um domínio com 2 entidades.
+
+## Evoluções naturais (não-MVP)
+
+A documentação registra evoluções priorizadas em [`docs/analysis/analise-desafio-arquiteto.md` § 13](docs/analysis/analise-desafio-arquiteto.md). Destaques alinhados a contextos enterprise:
+
+- **API Gateway (Azure APIM / Apigee)** — rate limiting distribuído, validação centralizada de JWT, transformação de payload, developer portal.
+- **OAuth 2.0 / OIDC com Microsoft Entra ID** — substitui `DemoUserSeeder` por IdP corporativo; APIs só validam JWT emitido pelo IdP.
+- **MFA (TOTP RFC 6238)** — próximo passo natural do stack de auth (Argon2id + lockout + refresh tokens já implementados).
+- **Cenário BDD cross-API** (Transactions → RabbitMQ → Balance) via Testcontainers RabbitMQ — evolução natural do [ADR-022](docs/adrs/adr-022-bdd-e2e-webapplicationfactory.md).
+- **OpenTelemetry completo** — distributed tracing propagado pelo broker (W3C TraceContext em headers AMQP) + Application Insights.
+- **Outbox Pattern** via MassTransit (`UseEntityFrameworkOutbox`) — elimina janela de inconsistência da [ADR-007](docs/adrs/adr-007-publish-after-commit.md).
+- **Migração para Azure Service Bus** — trocar broker via configuração do MassTransit, sem mudar código de negócio.
+- **Cron noturno do Stryker** + `--since main` em PR — mutation testing sem clique manual e com custo viável em PR.
+- **Consumer em processo dedicado** (`CashFlow.Balance.Worker`) quando volume justificar.

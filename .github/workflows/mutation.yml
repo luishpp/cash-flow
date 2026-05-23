@@ -1,0 +1,75 @@
+# Mutation testing — Stryker.NET sobre o Domain dos dois APIs.
+# Rodado MANUALMENTE (workflow_dispatch) — não bloqueia PRs.
+# Razão: mutação é custosa (recompila + roda testes por mutante).
+# Decisão completa em docs/adrs/adr-020-stryker-mutation-testing.md.
+
+name: Mutation (Stryker)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Source project alvo (Transactions ou Balance)'
+        required: true
+        default: 'Transactions'
+        type: choice
+        options:
+          - Transactions
+          - Balance
+          - Both
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+
+jobs:
+  mutation:
+    name: Stryker mutation testing
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore solution
+        run: dotnet restore CashFlow.sln
+
+      - name: Build solution (Release)
+        run: dotnet build CashFlow.sln --configuration Release --no-restore
+
+      - name: Restore dotnet tools (Stryker)
+        run: dotnet tool restore
+
+      - name: Stryker — Transactions
+        if: inputs.target == 'Transactions' || inputs.target == 'Both'
+        working-directory: tests/CashFlow.UnitTests
+        run: >-
+          dotnet stryker
+          --project CashFlow.Transactions.API.csproj
+          --output ../../StrykerOutput/Transactions
+
+      - name: Stryker — Balance
+        if: inputs.target == 'Balance' || inputs.target == 'Both'
+        working-directory: tests/CashFlow.UnitTests
+        run: >-
+          dotnet stryker
+          --project CashFlow.Balance.API.csproj
+          --output ../../StrykerOutput/Balance
+
+      - name: Upload Stryker reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stryker-reports
+          path: StrykerOutput/**/reports/**
+          retention-days: 30

@@ -1,0 +1,12 @@
+@base = http://localhost:5002
+
+### Health checks
+GET {{base}}/health/live
+###
+GET {{base}}/health/ready
+
+### Saldo do dia
+GET {{base}}/api/v1/balance/2026-05-22
+
+### Saldo por período
+GET {{base}}/api/v1/balance?from=2026-05-01&to=2026-05-31
