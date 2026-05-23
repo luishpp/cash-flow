@@ -1,6 +1,6 @@
 # ADR-007: Publicação de evento após commit
 
-**Status:** Aceita
+**Status:** Superada pelo [ADR-025](adr-025-outbox-and-dlq.md) (mantida para histórico — a janela aceita aqui foi fechada via outbox transacional)
 
 ## Contexto
 
@@ -30,9 +30,9 @@ Publicar o evento `TransactionRegistered` **após o `IUnitOfWork.CommitAsync()`*
 
 Sim. O RabbitMQ está na mesma rede Docker que a API. A latência de publicação é sub-milissegundo. Falha nesse ponto significa que o RabbitMQ caiu — nesse caso, o retry interno do MassTransit tenta novamente. Se o RabbitMQ estiver genuinamente fora, a mensagem é perdida e o saldo consolida sem essa transação até que uma reconciliação manual ou reprocessamento corrija.
 
-## Evolução futura — Outbox Pattern
+## Evolução — Outbox Pattern (implementado em [ADR-025](adr-025-outbox-and-dlq.md))
 
-Para eliminar completamente esse cenário, o Outbox Pattern salva a mensagem na mesma transação do banco e um processo em background despacha para o broker. O MassTransit tem suporte nativo (`UseEntityFrameworkOutbox`). Documentado como evolução futura — para o escopo do desafio, *publish after commit* é suficiente. A migração exigiria revisão da [ADR-010](adr-010-dapper.md) (porque o suporte é casado com EF Core).
+Esta janela de inconsistência foi **fechada posteriormente** pelo [ADR-025](adr-025-outbox-and-dlq.md), que implementa um outbox custom em Dapper (tabela `transactions.outbox_events` + `OutboxDispatcher` BackgroundService). Não foi adotado o `UseEntityFrameworkOutbox` do MassTransit porque exigiria abandonar Dapper (conflitaria com [ADR-010](adr-010-dapper.md)).
 
 ## ADRs relacionadas
 

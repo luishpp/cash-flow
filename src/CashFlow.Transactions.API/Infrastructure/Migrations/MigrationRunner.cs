@@ -18,6 +18,7 @@ public static class MigrationRunner
             .WithScriptsEmbeddedInAssembly(
                 Assembly.GetExecutingAssembly(),
                 name => name.Contains(".Migrations.Scripts."))
+            .JournalToPostgresqlTable("transactions", "schemaversions")
             .LogToConsole()
             .Build();
 

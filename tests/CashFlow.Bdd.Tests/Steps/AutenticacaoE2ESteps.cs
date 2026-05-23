@@ -196,18 +196,26 @@ public sealed class AutenticacaoE2ESteps
     public void EntaoIdDeTransacaoValido()
     {
         _responseJson.Should().NotBeNull();
-        _responseJson!.Value.TryGetProperty("id", out var id).Should().BeTrue();
+        // POST /transactions sempre retorna array (batch transacional — ADR-025).
+        _responseJson!.Value.ValueKind.Should().Be(System.Text.Json.JsonValueKind.Array);
+        _responseJson.Value.GetArrayLength().Should().BeGreaterThan(0);
+        var first = _responseJson.Value[0];
+        first.TryGetProperty("id", out var id).Should().BeTrue();
         Guid.TryParse(id.GetString(), out var parsed).Should().BeTrue();
         parsed.Should().NotBe(Guid.Empty);
     }
 
-    private static object BuildTransactionPayload(decimal valor) => new
-    {
-        type = "credit",
-        amount = valor,
-        description = "BDD E2E payload",
-        movementDate = DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
-    };
+    // POST /transactions é sempre batch (array) — wrap único item.
+    private static object[] BuildTransactionPayload(decimal valor) =>
+    [
+        new
+        {
+            type = "credit",
+            amount = valor,
+            description = "BDD E2E payload",
+            movementDate = DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
+        }
+    ];
 
     private async Task CaptureJsonAsync()
     {

@@ -41,4 +41,21 @@ public sealed class Transaction : AuditableEntity
             CreatedAt = DateTimeOffset.UtcNow
         };
     }
+
+    /// <summary>Rehidrata a entidade a partir do estado persistido (sem reaplicar invariantes de criação).</summary>
+    public static Transaction Hydrate(
+        Guid id,
+        decimal amount,
+        TransactionType type,
+        string description,
+        DateOnly movementDate,
+        DateTimeOffset createdAt) => new()
+        {
+            Id = id,
+            Amount = Money.From(amount),
+            Type = type,
+            Description = description,
+            MovementDate = MovementDate.From(movementDate),
+            CreatedAt = createdAt
+        };
 }

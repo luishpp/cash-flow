@@ -58,7 +58,7 @@ public sealed class BalanceRepository(IUnitOfWork uow) : IBalanceRepository
             cancellationToken: ct));
 
     private sealed record BalanceRow(
-        DateOnly Date, decimal TotalCredits, decimal TotalDebits, DateTimeOffset UpdatedAt)
+        DateOnly Date, decimal TotalCredits, decimal TotalDebits, DateTime UpdatedAt)
     {
         public DailyBalance ToEntity()
         {

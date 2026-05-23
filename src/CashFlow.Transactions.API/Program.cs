@@ -6,6 +6,7 @@ using CashFlow.Transactions.API.Domain.Exceptions;
 using CashFlow.Transactions.API.Infrastructure.Auth;
 using CashFlow.Transactions.API.Infrastructure.Messaging;
 using CashFlow.Transactions.API.Infrastructure.Migrations;
+using CashFlow.Transactions.API.Infrastructure.Outbox;
 using CashFlow.Transactions.API.Infrastructure.Persistence;
 using CashFlow.Transactions.API.Infrastructure.Repositories;
 using FluentValidation;
@@ -53,11 +54,9 @@ builder.Services.AddSwaggerGen(c =>
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Name = "Authorization",
-        Type = SecuritySchemeType.Http,
-        Scheme = "bearer",
-        BearerFormat = "JWT",
+        Type = SecuritySchemeType.ApiKey,
         In = ParameterLocation.Header,
-        Description = "JWT Bearer. Faça POST em /api/v1/auth/login para obter um token."
+        Description = "Cole o valor completo do header: Bearer <jwt>. Obtenha o JWT em POST /api/v1/auth/login."
     });
     c.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
@@ -94,6 +93,11 @@ builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 
 // ---------- Application ----------
 builder.Services.AddScoped<ITransactionService, TransactionService>();
+
+// ---------- Outbox (ADR-007 mitigation: at-least-once ponta-a-ponta) ----------
+builder.Services.AddScoped<IOutboxRepository, OutboxRepository>();
+if (!isTesting)
+    builder.Services.AddHostedService<OutboxDispatcher>();
 
 // ---------- MassTransit / RabbitMQ (ADR-002) ----------
 if (!isTesting)

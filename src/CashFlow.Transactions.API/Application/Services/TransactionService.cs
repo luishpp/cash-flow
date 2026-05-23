@@ -1,8 +1,9 @@
+using System.Text.Json;
 using CashFlow.Shared.Events;
 using CashFlow.Transactions.API.Application.DTOs;
 using CashFlow.Transactions.API.Domain.Entities;
 using CashFlow.Transactions.API.Domain.ValueObjects;
-using CashFlow.Transactions.API.Infrastructure.Messaging;
+using CashFlow.Transactions.API.Infrastructure.Outbox;
 using CashFlow.Transactions.API.Infrastructure.Persistence;
 using CashFlow.Transactions.API.Infrastructure.Repositories;
 
@@ -11,19 +12,43 @@ namespace CashFlow.Transactions.API.Application.Services;
 public sealed class TransactionService(
     IUnitOfWork uow,
     ITransactionRepository repo,
-    IEventPublisher publisher,
+    IOutboxRepository outbox,
     ILogger<TransactionService> logger) : ITransactionService
 {
-    public async Task<TransactionResponse> RegisterAsync(
-        RegisterTransactionRequest request, CancellationToken ct = default)
+    public async Task<IReadOnlyList<TransactionResponse>> RegisterManyAsync(
+        IReadOnlyList<RegisterTransactionRequest> requests, CancellationToken ct = default)
     {
-        var type = TransactionTypeExtensions.Parse(request.Type);
-        var transaction = Transaction.Register(request.Amount, type, request.Description, request.MovementDate);
+        var transactions = new List<Transaction>(requests.Count);
+        foreach (var req in requests)
+        {
+            var type = TransactionTypeExtensions.Parse(req.Type);
+            transactions.Add(Transaction.Register(req.Amount, type, req.Description, req.MovementDate));
+        }
 
         await uow.BeginAsync(ct);
         try
         {
-            await repo.InsertAsync(transaction, ct);
+            foreach (var tx in transactions)
+            {
+                await repo.InsertAsync(tx, ct);
+
+                var evt = new TransactionRegistered(
+                    EventId: Guid.NewGuid(),
+                    TransactionId: tx.Id,
+                    Amount: tx.Amount.Amount,
+                    Type: tx.Type.ToSnakeCase(),
+                    Description: tx.Description,
+                    MovementDate: tx.MovementDate.Value,
+                    RegisteredAt: DateTimeOffset.UtcNow);
+
+                // INSERT + outbox na mesma tx — atomicidade entre escrita e intenção de publicar
+                // fecha a janela do ADR-007 (Balance nunca fica defasada por publish perdido).
+                await outbox.EnqueueAsync(
+                    evt.EventId,
+                    nameof(TransactionRegistered),
+                    JsonSerializer.Serialize(evt),
+                    ct);
+            }
             await uow.CommitAsync(ct);
         }
         catch
@@ -32,30 +57,11 @@ public sealed class TransactionService(
             throw;
         }
 
-        // Publica APÓS commit (ADR-007). Falha aqui é cenário documentado;
-        // Outbox Pattern é evolução natural (ADR-011 documenta o trade-off).
-        var evt = new TransactionRegistered(
-            EventId: Guid.NewGuid(),
-            TransactionId: transaction.Id,
-            Amount: transaction.Amount.Amount,
-            Type: transaction.Type.ToSnakeCase(),
-            Description: transaction.Description,
-            MovementDate: transaction.MovementDate.Value,
-            RegisteredAt: DateTimeOffset.UtcNow);
+        logger.LogInformation(
+            "{Count} transação(ões) persistida(s) — eventos enfileirados no outbox para dispatch assíncrono.",
+            transactions.Count);
 
-        try
-        {
-            await publisher.PublishAsync(evt, ct);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex,
-                "Falha ao publicar TransactionRegistered (EventId={EventId}, TransactionId={TransactionId}). " +
-                "Transação foi persistida — Balance ficará defasado até reconciliação.",
-                evt.EventId, transaction.Id);
-        }
-
-        return ToResponse(transaction);
+        return transactions.Select(ToResponse).ToList();
     }
 
     public async Task<TransactionResponse?> GetByIdAsync(Guid id, CancellationToken ct = default)

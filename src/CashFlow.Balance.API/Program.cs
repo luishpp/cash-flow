@@ -39,11 +39,9 @@ builder.Services.AddSwaggerGen(c =>
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Name = "Authorization",
-        Type = SecuritySchemeType.Http,
-        Scheme = "bearer",
-        BearerFormat = "JWT",
+        Type = SecuritySchemeType.ApiKey,
         In = ParameterLocation.Header,
-        Description = "JWT Bearer obtido na Transactions API (/api/v1/auth/login)."
+        Description = "Cole o valor completo do header: Bearer <jwt>. Obtenha o JWT em POST /api/v1/auth/login (na Transactions API)."
     });
     c.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
@@ -81,6 +79,7 @@ builder.Services.AddRateLimiter(options =>
 });
 
 // ---------- Persistence (ADR-010) ----------
+Dapper.SqlMapper.AddTypeHandler(new DateOnlyTypeHandler());
 builder.Services.AddSingleton<IDbConnectionFactory>(_ => new NpgsqlConnectionFactory(connectionString));
 builder.Services.AddScoped<IUnitOfWork, DapperUnitOfWork>();
 builder.Services.AddScoped<IBalanceRepository, BalanceRepository>();
@@ -89,6 +88,7 @@ builder.Services.AddScoped<IProcessedEventsRepository, ProcessedEventsRepository
 // ---------- Application ----------
 builder.Services.AddScoped<IBalanceQueryService, BalanceQueryService>();
 builder.Services.AddScoped<IConsolidationService, ConsolidationService>();
+builder.Services.AddScoped<CashFlow.Balance.API.Application.Admin.ErrorQueueRedeliveryService>();
 
 // ---------- Polly Retry (ADR-005) ----------
 builder.Services.AddResiliencePipeline("consumer-pipeline", pipeline =>
@@ -106,8 +106,10 @@ builder.Services.AddResiliencePipeline("consumer-pipeline", pipeline =>
 builder.Services.AddMassTransit(cfg =>
 {
     cfg.AddConsumer<TransactionConsumer>();
+    cfg.AddDelayedMessageScheduler();   // usa o plugin rabbitmq_delayed_message_exchange
     cfg.UsingRabbitMq((ctx, rmq) =>
     {
+        rmq.UseDelayedMessageScheduler();
         rmq.Host(rabbitHost, "/", h =>
         {
             h.Username(rabbitUser);
@@ -115,6 +117,21 @@ builder.Services.AddMassTransit(cfg =>
         });
         rmq.ReceiveEndpoint("balance.transaction-registered", ep =>
         {
+            // FIFO real (ordering): SAC entre réplicas + processamento sequencial em cada uma.
+            // Sem isso, MassTransit dispara em paralelo (PrefetchCount=16, concurrency ilimitada)
+            // e a ordem dos lançamentos pode ser invertida — relevante para batches grandes.
+            ep.SingleActiveConsumer = true;
+            ep.ConcurrentMessageLimit = 1;
+            ep.PrefetchCount = 1;
+
+            // 1º nível: Polly dentro do Consumer (3 tentativas exp backoff até ~3s) — transientes rápidos.
+            // 2º nível: redelivery agendada no broker — janelas maiores cobrem outage de banco/dependência.
+            // Após esgotar todos, mensagem vai para `balance.transaction-registered_error` (DLQ visível).
+            ep.UseDelayedRedelivery(r => r.Intervals(
+                TimeSpan.FromMinutes(1),
+                TimeSpan.FromMinutes(5),
+                TimeSpan.FromMinutes(15)));
+
             ep.ConfigureConsumer<TransactionConsumer>(ctx);
         });
     });

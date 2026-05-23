@@ -54,13 +54,14 @@ A Transactions API **não depende** da Balance API. Se o consumer ou a Balance A
             └─────────────────────────────────────────────────────────┘
 ```
 
-**Decisões-chave** (detalhes em [`docs/adrs/`](docs/adrs/) — 19 ADRs no total):
+**Decisões-chave** (detalhes em [`docs/adrs/`](docs/adrs/) — 25 ADRs no total):
 
 - **CQRS** — separação write/read ([ADR-001](docs/adrs/adr-001-cqrs.md)).
 - **EDA com RabbitMQ + MassTransit** — desacoplamento temporal; portabilidade para Azure Service Bus ([ADR-002](docs/adrs/adr-002-rabbitmq-masstransit.md)).
 - **1 PostgreSQL + 2 schemas com GRANTs** — isolamento lógico real, menos cerimônia que 2 databases ([ADR-003](docs/adrs/adr-003-postgres-schemas.md)).
 - **Consumer como `BackgroundService`** no MVP; processo dedicado é evolução documentada ([ADR-004](docs/adrs/adr-004-consumer-hostedservice.md)).
 - **Polly Retry** com idempotência via tabela `processed_events` ([ADR-005](docs/adrs/adr-005-polly-retry.md), [ADR-011](docs/adrs/adr-011-idempotency.md)).
+- **Reliability: Outbox + Delayed Redelivery + DLQ admin** ([ADR-025](docs/adrs/adr-025-outbox-and-dlq.md)) — outbox transacional no publisher fecha a janela do [ADR-007](docs/adrs/adr-007-publish-after-commit.md); `UseDelayedRedelivery` no consumer (1min/5min/15min) cobre outages prolongados; `POST /api/v1/admin/errors/redeliver` na Balance API reprocessa a DLQ visível.
 - **Rate limiting nativo** do ASP.NET Core 10 ([ADR-006](docs/adrs/adr-006-rate-limiting.md)).
 - **Runtime .NET 10 (LTS)** com runway até Nov/2028 ([ADR-014](docs/adrs/adr-014-dotnet-10.md)).
 - **Rich Domain Model** + **Dapper** + **DbUp** ([ADR-009](docs/adrs/adr-009-rich-domain-model.md), [ADR-010](docs/adrs/adr-010-dapper.md)).
@@ -165,7 +166,7 @@ Retorna 204. O access token continua válido até expirar (15 min) — aceitáve
 
 **Lockout (ADR-023):** 5 tentativas falhas consecutivas travam a conta por 15 min. Mesmo a senha correta retorna 401 durante o lockout.
 
-**Via Swagger UI:** clique em **Authorize** (canto superior direito), cole o `accessToken` (sem prefixo `Bearer` — só o JWT), e teste qualquer endpoint protegido.
+**Via Swagger UI:** clique em **Authorize** (canto superior direito), cole `Bearer <accessToken>` (o valor completo do header — inclua o prefixo `Bearer`), e teste qualquer endpoint protegido.
 
 ## Endpoints
 
@@ -178,37 +179,34 @@ Retorna 204. O access token continua válido até expirar (15 min) — aceitáve
 | `POST` | `/api/v1/auth/login` | Emite access JWT (15min) + refresh token (7d) — anônimo |
 | `POST` | `/api/v1/auth/refresh` | Rotaciona refresh, emite par novo — anônimo |
 | `POST` | `/api/v1/auth/logout` | Revoga o refresh token — anônimo |
-| `POST` | `/api/v1/transactions` | Registra uma nova transação (débito ou crédito) |
+| `POST` | `/api/v1/transactions` | Registra um array de transações em batch transacional (tudo-ou-nada) |
 | `GET`  | `/api/v1/transactions/{id}` | Consulta uma transação específica |
 | `GET`  | `/api/v1/transactions?date={yyyy-MM-dd}` | Lista transações de uma data |
 
-**Exemplo — registrar um crédito (venda):**
+> Body é sempre um **array** — envie `[ { ... } ]` para registrar uma só. Batch é transacional (tudo-ou-nada): se qualquer item falhar (validação ou domínio), nada é persistido. Resposta é sempre 201 com array de `TransactionResponse`.
+
+**Exemplo — registrar uma transação (array com 1 item):**
 
 ```bash
 TOKEN="eyJhbGciOi..."
 curl -X POST http://localhost:5001/api/v1/transactions \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{
-    "type": "credit",
-    "amount": 150.00,
-    "description": "Venda do dia",
-    "movementDate": "2026-05-22"
-  }'
+  -d '[
+    { "type": "credit", "amount": 150.00, "description": "Venda do dia", "movementDate": "2026-05-22" }
+  ]'
 ```
 
-**Exemplo — registrar um débito (despesa):**
+**Exemplo — batch (crédito + débito no mesmo request):**
 
 ```bash
 curl -X POST http://localhost:5001/api/v1/transactions \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{
-    "type": "debit",
-    "amount": 45.50,
-    "description": "Compra de estoque",
-    "movementDate": "2026-05-22"
-  }'
+  -d '[
+    { "type": "credit", "amount": 150.00, "description": "Venda do dia", "movementDate": "2026-05-22" },
+    { "type": "debit",  "amount":  45.50, "description": "Compra de estoque", "movementDate": "2026-05-22" }
+  ]'
 ```
 
 ### Balance API — `http://localhost:5002`
@@ -217,6 +215,8 @@ curl -X POST http://localhost:5001/api/v1/transactions \
 |---|---|---|
 | `GET` | `/api/v1/balance/{date}` | Saldo consolidado de uma data específica |
 | `GET` | `/api/v1/balance?from={date}&to={date}` | Saldo consolidado por período |
+| `GET` | `/api/v1/admin/errors/count` | Quantidade de mensagens na DLQ (`balance.transaction-registered_error`) |
+| `POST` | `/api/v1/admin/errors/redeliver?max={N}` | Move mensagens da DLQ de volta para a fila principal (reprocessamento) |
 
 **Exemplo — consultar saldo do dia:**
 
@@ -236,6 +236,30 @@ curl http://localhost:5002/api/v1/balance/2026-05-22 \
   "updatedAt": "2026-05-22T13:42:11+00:00"
 }
 ```
+
+## Reliability — Outbox, retry e DLQ
+
+**Publisher (Transactions API):** o INSERT da transação e a gravação do evento em `transactions.outbox_events` ocorrem na **mesma transação**. Um `OutboxDispatcher` (`BackgroundService`) drena o outbox em ordem FIFO (`ORDER BY seq`) e publica no broker. Falha no publish marca a entry como `attempts++` + `last_error` — próximo ciclo retenta. Fecha a janela do publish-after-commit do [ADR-007](docs/adrs/adr-007-publish-after-commit.md).
+
+**Consumer (Balance API) — dois níveis de retry:**
+
+1. **In-process (Polly):** 3 tentativas com backoff exponencial até ~3s — cobre transientes rápidos.
+2. **Broker (Delayed Redelivery):** após esgotar Polly, `UseDelayedRedelivery` reagenda em **1min → 5min → 15min** via plugin `rabbitmq_delayed_message_exchange` (imagem custom em [`infra/rabbitmq/Dockerfile`](infra/rabbitmq/Dockerfile)). Cobre outage de banco/dependência.
+
+**DLQ:** após esgotar todos os retries, a mensagem vai para `balance.transaction-registered_error` (queue automática da MassTransit) — **não se perde**. Visibilidade e ação via:
+
+```bash
+# Quantas mensagens na DLQ agora?
+curl http://localhost:5002/api/v1/admin/errors/count -H "Authorization: Bearer $TOKEN"
+
+# Move tudo de volta pra fila principal (após corrigir a causa)
+curl -X POST http://localhost:5002/api/v1/admin/errors/redeliver -H "Authorization: Bearer $TOKEN"
+
+# Ou um lote: ?max=10
+curl -X POST "http://localhost:5002/api/v1/admin/errors/redeliver?max=10" -H "Authorization: Bearer $TOKEN"
+```
+
+A tabela `balance.processed_events` (idempotência — ADR-011) garante que reentregas via redelivery ou redeliver manual não dupliquem o saldo.
 
 ## Executar os testes
 
@@ -319,7 +343,7 @@ Load test (NBomber) fica fora do CI automático por exigir stack completa — de
 | [`docs/architecture.md`](docs/architecture.md) | **Visão arquitetural unificada** — estilo (CQRS + EDA + Clean Architecture + DDD), estrutura de módulos, regra de dependência, fluxos principais e bounded contexts. Leitura de ~15 min. |
 | [`docs/analysis/analise-desafio-arquiteto.md`](docs/analysis/analise-desafio-arquiteto.md) | Análise completa: contexto, persona, jornada, decisões arquiteturais, padrões aplicados, estrutura, evoluções futuras |
 | [`docs/rnfs/`](docs/rnfs/) | **9 RNFs** em arquivos individuais (Disponibilidade, Carga, Escalabilidade, Resiliência, Segurança, Padrões, Integração, Manutenibilidade, Observabilidade) |
-| [`docs/adrs/`](docs/adrs/) | **24 ADRs** em arquivos individuais com contexto, trade-offs explícitos, alternativas descartadas e configurações concretas |
+| [`docs/adrs/`](docs/adrs/) | **25 ADRs** em arquivos individuais com contexto, trade-offs explícitos, alternativas descartadas e configurações concretas |
 | [`docs/diagrams/`](docs/diagrams/) | Diagramas C4 em Mermaid (Contexto, Containers, Componentes) — renderizam no GitHub |
 | [`docs/challenge/`](docs/challenge/) | PDF original do desafio |
 | [`docs/references/`](docs/references/) | Material de estudo: dicionário arquitetural, RNFs→decisões, vaga, plano de preparação |
@@ -352,7 +376,7 @@ Load test (NBomber) fica fora do CI automático por exigir stack completa — de
 /infra
   /postgres/init.sql               → Criação de users + schemas + GRANTs
 
-/docs                                Documentação arquitetural (24 ADRs + 9 RNFs)
+/docs                                Documentação arquitetural (25 ADRs + 9 RNFs)
 docker-compose.yml                   Orquestração de todos os serviços
 CashFlow.sln                         Solution file
 README.md                            Este arquivo

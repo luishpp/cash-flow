@@ -23,26 +23,30 @@ public sealed class DapperUnitOfWork(IDbConnectionFactory factory) : IUnitOfWork
         _transaction = _connection.BeginTransaction();
     }
 
-    public Task CommitAsync(CancellationToken ct = default)
+    public async Task CommitAsync(CancellationToken ct = default)
     {
         if (_transaction is null) throw new InvalidOperationException("Sem transação ativa.");
         _transaction.Commit();
-        return Task.CompletedTask;
+        await ResetAsync();
     }
 
-    public Task RollbackAsync(CancellationToken ct = default)
+    public async Task RollbackAsync(CancellationToken ct = default)
     {
         if (_transaction is null) throw new InvalidOperationException("Sem transação ativa.");
         _transaction.Rollback();
-        return Task.CompletedTask;
+        await ResetAsync();
     }
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync() => ResetAsync();
+
+    private async ValueTask ResetAsync()
     {
         _transaction?.Dispose();
         if (_connection is NpgsqlConnection npg)
             await npg.DisposeAsync();
         else
             _connection?.Dispose();
+        _transaction = null;
+        _connection = null;
     }
 }

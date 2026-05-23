@@ -61,13 +61,15 @@ public sealed class TransactionRepository(IUnitOfWork uow) : ITransactionReposit
 
     private sealed record TransactionRow(
         Guid Id, decimal Amount, string Type, string Description,
-        DateOnly Movement_Date, DateTimeOffset Created_At)
+        DateOnly Movement_Date, DateTime Created_At)
     {
         public Transaction ToEntity() =>
-            Transaction.Register(
+            Transaction.Hydrate(
+                Id,
                 Amount,
                 TransactionTypeExtensions.Parse(Type),
                 Description,
-                Movement_Date);
+                Movement_Date,
+                new DateTimeOffset(DateTime.SpecifyKind(Created_At, DateTimeKind.Utc)));
     }
 }

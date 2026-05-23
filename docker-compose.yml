@@ -24,7 +24,8 @@ services:
       - cashflow-net
 
   rabbitmq:
-    image: rabbitmq:3-management-alpine
+    build:
+      context: ./infra/rabbitmq
     container_name: cashflow-rabbitmq
     ports:
       - "5672:5672"

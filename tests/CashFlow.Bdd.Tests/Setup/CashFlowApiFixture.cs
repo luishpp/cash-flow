@@ -66,6 +66,17 @@ public sealed class CashFlowApiFixture
 
         Client = _factory.CreateClient();
 
+        // Em produção o schema 'transactions' é criado por infra/postgres/init.sql (executado
+        // pelo postgres superuser). Testcontainers sobe um Postgres "puro" sem init.sql, então
+        // precisamos criar o schema aqui antes do DbUp tentar gravar a tabela schemaversions.
+        await using (var bootstrap = new NpgsqlConnection(_connectionString))
+        {
+            await bootstrap.OpenAsync();
+            await using var cmd = new NpgsqlCommand(
+                "CREATE SCHEMA IF NOT EXISTS transactions;", bootstrap);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
         // Em "Testing" o Program.cs pula migrations + seed — aplicamos manualmente aqui.
         using var scope = _factory.Services.CreateScope();
         var logger = scope.ServiceProvider.GetRequiredService<ILogger<CashFlowApiFixture>>();
