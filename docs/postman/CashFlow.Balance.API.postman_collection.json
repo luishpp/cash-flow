@@ -210,7 +210,7 @@
                           "variable": [
                             {
                               "key": "date",
-                              "value": "2026-05-25"
+                              "value": "2026-05-26"
                             }
                           ]
                         }
@@ -277,7 +277,7 @@
                       }
                     ],
                     "url": {
-                      "raw": "{{baseUrl}}/api/v1/Balance?from=2026-05-01&to=2026-05-30",
+                      "raw": "{{baseUrl}}/api/v1/Balance?from=2026-05-01&to=2026-05-31",
                       "host": [
                         "{{baseUrl}}"
                       ],
@@ -293,7 +293,7 @@
                         },
                         {
                           "key": "to",
-                          "value": "2026-05-30"
+                          "value": "2026-05-31"
                         }
                       ]
                     }

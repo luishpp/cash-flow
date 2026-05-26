@@ -160,6 +160,9 @@ using (var scope = app.Services.CreateScope())
 }
 
 // ---------- Pipeline ----------
+// Swagger exposto em todos os ambientes — decisão consciente do MVP: o desafio
+// pressupõe que o avaliador rode `docker compose up` (env Production) e teste via
+// Swagger UI. Em deploy real, gatear com `IsDevelopment()` ou flag de config.
 app.UseSwagger();
 app.UseSwaggerUI();
 app.UseSerilogRequestLogging();
