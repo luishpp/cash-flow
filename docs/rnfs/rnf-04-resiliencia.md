@@ -28,7 +28,7 @@ Não cobertos no MVP (evolução): Circuit Breaker, Dead Letter Queue explícita
 
 ## Trade-off aceito
 
-Janela teórica de inconsistência entre commit do banco e publish do evento ([ADR-007](../adrs/adr-007-publish-after-commit.md)). É raro e mitigado pelo retry interno do MassTransit; eliminação completa exigiria Outbox Pattern (evolução).
+A janela teórica de inconsistência entre commit e publish que o [ADR-007](../adrs/adr-007-publish-after-commit.md) reconhecia foi **fechada** pelo Outbox Pattern em Dapper ([ADR-025](../adrs/adr-025-outbox-and-dlq.md)) — INSERT da transação + INSERT em `outbox_events` na mesma UoW; `OutboxDispatcher` publica posteriormente com retry idempotente. Combinado com `UseDelayedRedelivery` (1min/5min/15min) no consumer e a tabela `processed_events` (idempotência — ADR-011), o sistema sustenta outage de minutos sem perda nem duplicação. Trade-off remanescente: latência POST → broker de até 1s (tick do dispatcher).
 
 ## Verificação
 
@@ -38,8 +38,8 @@ Janela teórica de inconsistência entre commit do banco e publish do evento ([A
 
 ## Evolução
 
-- **Circuit Breaker (Polly)** quando telemetria justificar — ver [ADR-005](../adrs/adr-005-polly-retry.md).
-- **Dead Letter Queue** explícita no MassTransit + rotina de inspeção/reprocessamento.
-- **Outbox Pattern** via MassTransit `UseEntityFrameworkOutbox` — elimina a janela de [ADR-007](../adrs/adr-007-publish-after-commit.md).
+- ~~**Dead Letter Queue** explícita~~ — **já implementada** em [ADR-025](../adrs/adr-025-outbox-and-dlq.md): MassTransit cria `balance.transaction-registered_error` automaticamente, e o `AdminController` na Balance API expõe `GET /api/v1/admin/errors/count` + `POST /api/v1/admin/errors/redeliver?max=N`.
+- ~~**Outbox Pattern**~~ — **já implementado** em Dapper ([ADR-025](../adrs/adr-025-outbox-and-dlq.md)); não exigiu migrar para EF Core.
+- **Circuit Breaker (Polly)** quando telemetria justificar — ver [ADR-005](../adrs/adr-005-polly-retry.md). Hoje cobrimos os dois cenários principais: transientes rápidos (Polly in-process) e outage prolongado (Delayed Redelivery 1/5/15min via plugin do RabbitMQ). CB serviria para cortar o consumer durante outage sustentado de dependência.
 - **Chaos engineering** (Azure Chaos Studio) — injetar falhas controladas em produção.
 - **Multi-região com failover** para indisponibilidades de zona inteira.

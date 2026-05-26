@@ -1,0 +1,31 @@
+sequenceDiagram
+    autonumber
+    participant Disp as OutboxDispatcher<br/>(BackgroundService — ADR-025)
+    participant Outbox as IOutboxRepository
+    participant Pub as IEventPublisher<br/>[MassTransit IPublishEndpoint]
+    participant MQ as RabbitMQ<br/>(exchange: TransactionRegistered)
+
+    loop a cada 1s (IdleDelay) ou logo em seguida se houve trabalho
+        Note over Disp: AsyncScope novo a cada iteração<br/>(DapperUnitOfWork é IAsyncDisposable)
+
+        Disp->>Outbox: PeekPendingAsync(batchSize=50)
+        Outbox-->>Disp: List<OutboxEntry> ordenado por seq ASC
+
+        alt lista vazia
+            Note over Disp: Task.Delay(1s) e tenta de novo
+        else há eventos pendentes
+            loop for each entry (FIFO)
+                Disp->>Pub: PublishAsync(TransactionRegistered)
+                Pub->>MQ: AMQP publish
+
+                alt publish OK
+                    Disp->>Outbox: MarkPublishedAsync(entry.Id)<br/>(SET published_at = NOW())
+                else publish falha
+                    Disp->>Outbox: RecordFailureAsync(entry.Id, error)<br/>(attempts++, last_error)
+                    Note over Disp: break do loop —<br/>preserva FIFO, não pula evento
+                end
+            end
+        end
+    end
+
+    Note over Disp,MQ: Falha transiente (NpgsqlException/SocketException/TimeoutException):<br/>log uma WRN no início do outage + suprime stack até recuperar

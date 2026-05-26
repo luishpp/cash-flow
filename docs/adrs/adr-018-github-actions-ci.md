@@ -24,9 +24,9 @@ Adotar **GitHub Actions** com um único workflow `.github/workflows/ci.yml` que 
 3. **Cache NuGet** chaveado por hash dos `*.csproj` — acelera runs subsequentes.
 4. **Restore + Build** em configuração `Release`.
 5. **Test em 3 etapas separadas** (para que falhas sejam atribuídas à suíte certa):
-   - `CashFlow.UnitTests` (24 testes, ~70ms)
-   - `CashFlow.Architecture.Tests` (8 fitness functions, ~130ms)
-   - `CashFlow.Bdd.Tests` (6 cenários Reqnroll pt-BR, ~60ms)
+   - `CashFlow.UnitTests` (85 testes — Rich Domain de ambos contextos)
+   - `CashFlow.Architecture.Tests` (8 fitness functions)
+   - `CashFlow.Bdd.Tests` (15 cenários Reqnroll pt-BR — domínio + E2E via Testcontainers)
 6. **Upload de TRX + cobertura** como artifact (retenção 7 dias) — permite inspecionar resultados de runs antigos.
 
 ### O que NÃO está no CI

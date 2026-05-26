@@ -708,4 +708,4 @@
 
 ---
 
-*Última atualização: Maio 2026 — Projeto Preparação Arquiteto de Software (Verx)*
+*Última atualização: Maio 2026 — Projeto Preparação Arquiteto de Software*

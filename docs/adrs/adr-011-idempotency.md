@@ -75,12 +75,13 @@ catch { await uow.RollbackAsync(ct); throw; }
 
 ## Evolução documentada
 
-- **Outbox/Inbox Pattern** com MassTransit (`UseEntityFrameworkOutbox` + `UseInMemoryInbox`) garante exactly-once de ponta a ponta. Trade-off: amarra a EF Core, contradiz [ADR-010](adr-010-dapper.md). Migração só faz sentido se EF for adotado em revisão futura.
-- **Housekeeping automatizado** via `pg_cron` ou worker dedicado para purgar `processed_events` > 90 dias.
+- **Outbox publisher-side** — **implementado** em [ADR-025](adr-025-outbox-and-dlq.md) via tabela `transactions.outbox_events` + `OutboxDispatcher` (BackgroundService). Não foi usado o `UseEntityFrameworkOutbox` do MassTransit para preservar Dapper ([ADR-010](adr-010-dapper.md)). Combinado com esta ADR (inbox consumer-side via `processed_events`), o sistema entrega garantia próxima a exactly-once ponta-a-ponta.
+- **Housekeeping automatizado** via `pg_cron` ou worker dedicado para purgar `processed_events` > 90 dias (e analogamente `outbox_events` já publicados).
 
 ## ADRs relacionadas
 
 - [ADR-002](adr-002-rabbitmq-masstransit.md) — garantia at-least-once do broker
 - [ADR-004](adr-004-consumer-hostedservice.md) — consumer onde a idempotência é aplicada
 - [ADR-005](adr-005-polly-retry.md) — retry sem idempotência seria perigoso
-- [ADR-007](adr-007-publish-after-commit.md) — janela de inconsistência que esta ADR mitiga
+- [ADR-007](adr-007-publish-after-commit.md) — janela de inconsistência (superada por [ADR-025](adr-025-outbox-and-dlq.md))
+- [ADR-025](adr-025-outbox-and-dlq.md) — outbox publisher-side que casa com esta inbox consumer-side

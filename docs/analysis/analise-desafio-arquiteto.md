@@ -170,146 +170,39 @@ Para o MVP: prefixo `/api/v1/` em todos endpoints, healthchecks `/health/live` e
 
 ### 6.1. Level 1 — Contexto
 
-```text
-┌─────────────┐         HTTPS / JSON         ┌──────────────────────────┐
-│   Carlos    │ ──────────────────────────── │ Sistema CashFlow         │
-│ Comerciante │  Registra lançamentos e      │                          │
-│             │  consulta saldo consolidado  │  Transactions + Balance  │
-└─────────────┘  (via Swagger ou frontend    │  (write + read sides)    │
-                  futuro)                    └──────────────────────────┘
-```
+![C4 Level 1 — Contexto](../diagrams/c4-contexto.png)
+
+> Fonte editável: [`../diagrams/c4-contexto.mmd`](../diagrams/c4-contexto.mmd) · Página: [`../diagrams/c4-contexto.md`](../diagrams/c4-contexto.md)
 
 ### 6.2. Level 2 — Containers
 
-```text
-                            ┌─────────────────┐
-                            │   Comerciante   │
-                            │    (Carlos)     │
-                            └────────┬────────┘
-                                     │ HTTPS/JSON (Swagger UI)
-                    ┌────────────────┴───────────────┐
-                    ▼                                ▼
-          ┌─────────────────┐               ┌───────────────────────┐
-          │ Transactions    │               │      Balance API      │
-          │   API .NET 10   │               │       .NET 10         │
-          │  Write Side     │               │  Read Side            │
-          │  + Rich Domain  │               │  + Rate Limiting      │
-          │                 │               │  + BackgroundService  │
-          │                 │               │  (TransactionConsumer)│
-          └───┬─────────┬───┘               └────┬────────────┬─────┘
-              │         │                        │            │
-              │         ▼                        ▼            │
-              │  ┌──────────────┐  ┌───────────────────┐      │
-              │  │   RabbitMQ   │  │   PostgreSQL      │      │
-              │  │   (Broker)   │  │   cashflow        │      │
-              │  │  port 5672   │  │ ┌──────────────┐  │      │
-              │  │  port 15672  │  │ │schema:       │  │      │
-              │  └──────┬───────┘  │ │ transactions │  │      │
-              │         │          │ └──────────────┘  │      │
-              │         │          │ ┌──────────────┐  │      │
-              │         └──────────┼─│schema:       │◀┘      │
-              │                    │ │   balance    │         │
-              │                    │ └──────────────┘ │       │
-              └────────────────────│ user grants      │◀──── (consultas)
-                                   │ por schema       │
-                                   └──────────────────┘
-```
+![C4 Level 2 — Containers](../diagrams/c4-containers.png)
+
+> Fonte editável: [`../diagrams/c4-containers.mmd`](../diagrams/c4-containers.mmd) · Página: [`../diagrams/c4-containers.md`](../diagrams/c4-containers.md)
 
 **O que este diagrama comunica:**
 
 - Dois serviços independentes — não há chamada síncrona entre eles.
-- Comunicação assíncrona via RabbitMQ — se o consumidor cair, mensagens ficam na fila.
+- Comunicação assíncrona via RabbitMQ — se o consumidor cair, mensagens ficam na fila (e o publisher tem outbox transacional — [ADR-025](../adrs/adr-025-outbox-and-dlq.md)).
 - Um database PostgreSQL com dois schemas isolados via GRANTs por usuário.
 - Rate limiting na própria Balance API (sem API Gateway externo no MVP).
 - O consumer é um `BackgroundService` dentro da Balance API (ver [ADR-004](../adrs/adr-004-consumer-hostedservice.md)) — separação em processo dedicado é evolução documentada.
 
-**Diagrama completo em Mermaid (renderizado pelo GitHub):** veja [`../diagrams/c4-containers.md`](../diagrams/c4-containers.md).
-
 ### 6.3. Level 3 — Componentes da Transactions API
 
-```text
-┌─────────────────────────────────────────────────────────────┐
-│              CashFlow.Transactions.API (.NET 10)            │
-│                                                             │
-│  ┌──────────────────────┐                                   │
-│  │ Controllers v1       │                                   │
-│  │ (TransactionsCtrl)   │                                   │
-│  │ + FluentValidation   │                                   │
-│  └─────────┬────────────┘                                   │
-│            │                                                │
-│            ▼                                                │
-│  ┌──────────────────────┐                                   │
-│  │ TransactionService   │                                   │
-│  │ (Application Layer)  │                                   │
-│  │ + IUnitOfWork        │                                   │
-│  └──┬──────────────┬────┘                                   │
-│     │              │                                        │
-│     ▼              ▼                                        │
-│  ┌──────────────┐ ┌──────────────────┐                      │
-│  │ Rich Domain  │ │ IEventPublisher  │                      │
-│  │ (Transaction,│ │ (MassTransit)    │                      │
-│  │  Money, VOs) │ └──────┬───────────┘                      │
-│  └──────┬───────┘        │                                  │
-│         │                │                                  │
-│         ▼                │                                  │
-│  ┌──────────────────────┐│                                  │
-│  │ TransactionRepository││                                  │
-│  │ (Dapper)             ││                                  │
-│  └────────┬─────────────┘│                                  │
-└───────────┼──────────────┼──────────────────────────────────┘
-            ▼              ▼
-     ┌────────────┐  ┌──────────────┐
-     │ PostgreSQL │  │  RabbitMQ    │
-     │ schema:    │  │              │
-     │transactions│  │              │
-     └────────────┘  └──────────────┘
-```
+![C4 Level 3 — Componentes Transactions API](../diagrams/c4-componentes-transactions.png)
 
-**Fluxo**: Endpoint recebe request → FluentValidation valida DTO → Service abre transação Dapper → `Transaction.Register()` valida invariantes do domínio → Repository persiste → Service comita transação → publica evento `TransactionRegistered` via MassTransit **após commit** (evita mensagens fantasma — [ADR-007](../adrs/adr-007-publish-after-commit.md)).
+> Fonte editável: [`../diagrams/c4-componentes-transactions.mmd`](../diagrams/c4-componentes-transactions.mmd) · Página: [`../diagrams/c4-componentes-transactions.md`](../diagrams/c4-componentes-transactions.md)
+
+**Fluxo (atualizado pelo [ADR-025](../adrs/adr-025-outbox-and-dlq.md)):** endpoint recebe array → validation manual item-a-item → Service abre UoW → para cada item, `Transaction.Register(...)` valida invariantes + Repository persiste + Outbox enfileira o evento **na mesma tx** → Commit atômico. O `OutboxDispatcher` (BackgroundService) drena o outbox e publica via MassTransit, fechando a janela do ADR-007.
 
 ### 6.4. Level 3 — Componentes do Consumer (dentro da Balance API)
 
-```text
-     ┌──────────────┐
-     │  RabbitMQ    │
-     └──────┬───────┘
-            │ Consome TransactionRegistered
-            ▼
-┌─────────────────────────────────────────────────────────┐
-│  CashFlow.Balance.API (.NET 10)                         │
-│                                                         │
-│  ┌──────────────────────┐  ┌─────────────────────┐      │
-│  │ Controllers v1       │  │ TransactionConsumer │      │
-│  │ (BalanceController)  │  │ (BackgroundService) │      │
-│  │ + Rate Limiting      │  │ + Polly Retry       │      │
-│  └─────────┬────────────┘  └─────────┬───────────┘      │
-│            │                         │                  │
-│            ▼                         ▼                  │
-│  ┌─────────────────────┐  ┌────────────────────────┐    │
-│  │ BalanceQueryService │  │ ConsolidationService   │    │
-│  │ (queries)           │  │ (aplica delta no saldo)│    │
-│  └─────────┬───────────┘  └──┬─────────────────┬───┘    │
-│            │                 │                 │        │
-│            ▼                 ▼                 ▼        │
-│  ┌─────────────────┐ ┌──────────────────┐ ┌──────────┐  │
-│  │BalanceRepository│ │ BalanceRepository│ │ Processed│  │
-│  │ (Dapper SELECT) │ │ (Dapper UPSERT)  │ │EventsRepo│  │
-│  └────────┬────────┘ └────────┬─────────┘ └──────┬───┘  │
-└───────────┼───────────────────┼──────────────────┼──────┘
-            │                   │                  │
-            └─────────┬─────────┴──────────────────┘
-                      ▼
-              ┌─────────────────┐
-              │   PostgreSQL    │
-              │ schema:         │
-              │   balance       │
-              │  - daily_balance│
-              │  - processed_   │
-              │    events       │
-              └─────────────────┘
-```
+![C4 Level 3 — Componentes Balance API + Consumer](../diagrams/c4-componentes-balance.png)
 
-**Fluxo do consumer**: mensagem chega → consumer abre transação Dapper → verifica `IProcessedEventsRepository.ExistsAsync(EventId)` (idempotência — [ADR-011](../adrs/adr-011-idempotency.md)) → se novo, `ConsolidationService.ApplyAsync(...)` atualiza `daily_balance` e marca `processed_events` na mesma transação → commit → `Ack` para RabbitMQ.
+> Fonte editável: [`../diagrams/c4-componentes-balance.mmd`](../diagrams/c4-componentes-balance.mmd) · Página: [`../diagrams/c4-componentes-balance.md`](../diagrams/c4-componentes-balance.md)
+
+**Fluxo do consumer**: mensagem chega → consumer abre transação Dapper → verifica `IProcessedEventsRepository.ExistsAsync(EventId)` (idempotência — [ADR-011](../adrs/adr-011-idempotency.md)) → se novo, `ConsolidationService.ApplyAsync(...)` atualiza `daily_balance` e marca `processed_events` na mesma transação → commit → `Ack` para RabbitMQ. Falha de dependência prolongada aciona `UseDelayedRedelivery` (1min/5min/15min), e mensagens esgotadas vão para a DLQ visível, reprocessável via `POST /api/v1/admin/errors/redeliver` ([ADR-025](../adrs/adr-025-outbox-and-dlq.md)).
 
 **Entidade DailyBalance:**
 
@@ -319,7 +212,7 @@ Para o MVP: prefixo `/api/v1/` em todos endpoints, healthchecks `/health/live` e
 - `Balance` (decimal, derivado)
 - `UpdatedAt` (timestamptz)
 
-**Diagramas completos em Mermaid:** veja [`../diagrams/`](../diagrams/) (Contexto, Containers, Componentes para cada API).
+**Diagramas e fluxos completos:** veja [`../diagrams/`](../diagrams/) — C4 + 3 fluxos (escrita, consumo, leitura) + outbox dispatch + comunicação entre contextos.
 
 ---
 
@@ -397,40 +290,51 @@ Para o MVP: prefixo `/api/v1/` em todos endpoints, healthchecks `/health/live` e
 
 ```text
 /src
-  /CashFlow.Transactions.API   → Write Side
-                                  (pastas internas: Domain/, Application/,
-                                   Infrastructure/, Controllers/,
-                                   Infrastructure/Migrations/)
+  /CashFlow.Transactions.API   → Write Side + /auth + Outbox dispatcher
+                                  (Domain/, Application/{Auth,DTOs,Services,Validators},
+                                   Infrastructure/{Auth,Persistence,Repositories,
+                                                   Messaging,Outbox,Migrations},
+                                   Controllers/{TransactionsController, AuthController})
 
-  /CashFlow.Balance.API        → Read Side + BackgroundService consumer
-                                  (pastas internas: Domain/, Application/,
-                                   Infrastructure/, Controllers/, Consumers/,
-                                   Infrastructure/Migrations/)
+  /CashFlow.Balance.API        → Read Side + Consumer + DLQ admin
+                                  (Domain/, Application/{Admin,DTOs,Services},
+                                   Infrastructure/{Persistence,Repositories,Migrations},
+                                   Controllers/{BalanceController, AdminController},
+                                   Consumers/TransactionConsumer)
 
-  /CashFlow.Shared             → Contratos de eventos (TransactionRegistered)
+  /CashFlow.Shared             → Eventos de integração + Security primitives (JWT, Policies)
 
 /tests
-  /CashFlow.UnitTests             → Testes de domínio (Transaction, Money,
-                                     DailyBalance, etc.)
-  /CashFlow.Architecture.Tests    → NetArchTest — fitness functions
+  /CashFlow.UnitTests             → 85 testes — Rich Domain de ambos contextos
+  /CashFlow.Architecture.Tests    → 8 fitness functions (NetArchTest)
+  /CashFlow.Bdd.Tests             → 15 cenários Reqnroll pt-BR (domínio + E2E via Testcontainers)
+  /CashFlow.LoadTests             → NBomber — validação empírica do RNF-02
 
 /infra
   /postgres/init.sql              → Criação de users + schemas + GRANTs
+  /rabbitmq/Dockerfile            → Imagem custom com plugin delayed-message-exchange (ADR-025)
+
+/.github/workflows
+  ci.yml                          → build + 3 suítes (push/PR)
+  mutation.yml                    → Stryker (workflow_dispatch manual)
+
+/.config
+  dotnet-tools.json               → Stryker como local tool
 
 /docs
   /challenge   → PDF original do desafio
   /analysis    → Este documento (análise + decisões)
-  /adrs        → 13 ADRs em arquivos individuais
+  /adrs        → 25 ADRs em arquivos individuais
   /rnfs        → 9 RNFs em arquivos individuais
-  /diagrams    → Diagramas C4 em Mermaid
+  /diagrams    → Diagramas C4 + fluxos (PNG embedado + fonte .mmd editável)
   /references  → Material de estudo, vocabulário, plano de preparação
 
-docker-compose.yml   → PostgreSQL + RabbitMQ + 2 APIs com healthchecks
-CashFlow.sln         → Solution file
+docker-compose.yml   → PostgreSQL + RabbitMQ (custom) + 2 APIs com healthchecks
+CashFlow.sln         → Solution file (3 src + 4 tests = 7 projetos)
 README.md            → Instruções de execução
 ```
 
-**3 projetos de produção + 2 de testes.** Separação por pastas internas (Domain/, Application/, Infrastructure/) dentro de cada API demonstra Clean Architecture sem a cerimônia de 11 projetos para um domínio com 2 entidades.
+**3 projetos de produção + 4 de teste/carga** (UnitTests, Architecture.Tests, Bdd.Tests, LoadTests). Separação por pastas internas (Domain/, Application/, Infrastructure/) dentro de cada API demonstra Clean Architecture sem a cerimônia de 11 projetos para um domínio com 2 entidades.
 
 ---
 
@@ -484,14 +388,14 @@ O desafio menciona explicitamente que evoluções futuras são bem-vindas. Estas
 - **Frontend Web (SPA)** — interface mobile-first para o comerciante Carlos, baseada na persona e jornada documentadas nas seções 2 e 3. Blazor WASM mantém o stack 100% C#.
 - **Consumer em processo dedicado** — extrair o `BackgroundService` (`TransactionConsumer`) da Balance API para `CashFlow.Balance.Worker` (refator mecânico) quando volume justificar ([ADR-004](../adrs/adr-004-consumer-hostedservice.md)).
 - **Cache em memória (IMemoryCache)** — na Balance API, para reduzir pressão no banco em picos sustentados.
-- **Stryker.NET (testes de mutação)** — complementa testes unitários medindo qualidade real das assertions, alinhado ao plano de estudo Verx.
+- **Stryker.NET (testes de mutação)** — complementa testes unitários medindo qualidade real das assertions, alinhado ao plano de estudo.
 
 **Médio prazo (estabilização):**
 
-- **Circuit Breaker + DLQ** ([ADR-005](../adrs/adr-005-polly-retry.md)) — quando houver telemetria de produção mostrando cenários de falha sustentada ou mensagens venenosas que justifiquem.
-- **Outbox Pattern** via MassTransit `UseEntityFrameworkOutbox` — eliminar a janela de inconsistência da [ADR-007](../adrs/adr-007-publish-after-commit.md). Requer migrar para EF Core no write side (revisa [ADR-010](../adrs/adr-010-dapper.md)).
+- **Circuit Breaker** ([ADR-005](../adrs/adr-005-polly-retry.md)) — quando houver telemetria de produção mostrando cenários de falha sustentada ou mensagens venenosas que justifiquem (a DLQ visível já foi implementada em [ADR-025](../adrs/adr-025-outbox-and-dlq.md)).
+- ~~**Outbox Pattern**~~ — **já implementado** via outbox custom em Dapper ([ADR-025](../adrs/adr-025-outbox-and-dlq.md)). A janela do [ADR-007](../adrs/adr-007-publish-after-commit.md) foi fechada sem precisar migrar para EF Core (a alternativa `UseEntityFrameworkOutbox` foi descartada — manteve [ADR-010](../adrs/adr-010-dapper.md) intacta).
 - **Migração para Azure Service Bus** — em produção, trocar RabbitMQ por Service Bus via configuração do MassTransit (`UsingAzureServiceBus(...)`), ganhando DLQ gerenciada e SLA de 99.95%.
-- **API Gateway (Azure APIM / Apigee)** — centraliza autenticação, rate limiting distribuído, transformação de payload e developer portal. Tópico relevante para a vaga Verx (cliente provavelmente do setor financeiro/regulado).
+- **API Gateway (Azure APIM / Apigee)** — centraliza autenticação, rate limiting distribuído, transformação de payload e developer portal. Tópico relevante para a vaga (cliente provavelmente do setor financeiro/regulado).
 - **OAuth 2.0 / OIDC com Microsoft Entra ID** — quando houver identidade definida (frontend, mobile, integrações B2B).
 - **OpenTelemetry completo** (traces + métricas + logs) com Application Insights — distributed tracing propagado pelo broker (W3C TraceContext em headers AMQP).
 

@@ -1,7 +1,7 @@
 # Avaliação Técnica — Percentil de Conformidade
 
 > Documento **interno** de referência. Não é citado por nenhuma outra peça do repositório.
-> Avaliação cruzada entre **requisitos da vaga Verx** ([`../references/vaga-verx.md`](../references/vaga-verx.md)) e **enunciado do desafio** ([`desafio-arquiteto-software.pdf`](desafio-arquiteto-software.pdf)) contra o **estado atual da solução** documentado em [`../adrs/README.md`](../adrs/README.md) e [`../rnfs/README.md`](../rnfs/README.md).
+> Avaliação cruzada entre **requisitos da vaga** ([`../references/vaga-verx.md`](../references/vaga-verx.md)) e **enunciado do desafio** ([`desafio-arquiteto-software.pdf`](desafio-arquiteto-software.pdf)) contra o **estado atual da solução** documentado em [`../adrs/README.md`](../adrs/README.md) e [`../rnfs/README.md`](../rnfs/README.md).
 
 ---
 
@@ -24,13 +24,13 @@ A solução está no **2º percentil superior** de candidatos para esta vaga. St
 
 | Item | Status | Evidência |
 |---|---|---|
-| Desenho da solução | ✅ | C4 níveis 1-3, 24 ADRs, 9 RNFs |
+| Desenho da solução | ✅ | C4 níveis 1-3 (PNG embedados) + fluxos sync/async sequenceDiagram, 25 ADRs, 9 RNFs |
 | C# | ✅ | .NET 10 LTS, 3 projetos src + 3 de teste + 1 load test |
-| Testes | ✅ | UnitTests (85) + Architecture (8) + BDD-domínio (6) + BDD-E2E (9) = **108 verdes** + NBomber + Stryker mutação |
-| Boas práticas (DP, SOLID, padrões) | ✅ | CQRS, EDA, Clean Arch, Rich Domain, Repository/UoW, Application Services, Policy-based AuthZ, Argon2id, refresh-token rotation |
+| Testes | ✅ | UnitTests (91) + Architecture (8) + BDD-domínio (6) + BDD-E2E (9) = **114 verdes** + NBomber + Stryker mutação |
+| Boas práticas (DP, SOLID, padrões) | ✅ | CQRS, EDA, Clean Arch, Rich Domain, Repository/UoW, Application Services, Policy-based AuthZ, Argon2id, refresh-token rotation, **Outbox + Delayed Redelivery + DLQ admin (ADR-025)** |
 | README com instruções | ✅ | Auditado: badge CI, fluxo login/refresh/logout, seções CI/load/mutação, contagens atualizadas |
 | Repositório GitHub público | ✅ | Confirmado: `github.com/luishpp/cash-flow` (origin) |
-| Documentação no repo | ✅ | 24 ADRs + 9 RNFs + diagramas C4 + análise + avaliação interna |
+| Documentação no repo | ✅ | 25 ADRs + 9 RNFs + diagramas C4 + fluxos + análise + avaliação interna |
 
 **Pontuação:** 7/7. Todos os critérios obrigatórios verificados.
 
@@ -52,19 +52,19 @@ A solução está no **2º percentil superior** de candidatos para esta vaga. St
 | Dimensão | Cobertura | Nota | Lacuna |
 |---|---|---|---|
 | Escalabilidade | 75% | A- | Stateless + projeção pré-calculada + carga sustentada de 50 rps medida. Cache distribuído ainda como evolução. |
-| Resiliência | 95% | A | CB + DLQ ficaram como evolução (defensável p/ MVP) |
+| Resiliência | 98% | A+ | Outbox em Dapper + 2 níveis de retry (Polly in-process + Delayed Redelivery 1/5/15min) + DLQ visível com endpoint admin de reprocessamento (ADR-025); fecha a janela do ADR-007 |
 | **Segurança** | **97%** | **A+** | JWT 15min + Policy-based AuthZ + Argon2id + **lockout** + **refresh tokens com rotação** + logout + anti-enumeration + E2E. Falta apenas IdP externo/OIDC e MFA. |
 | Padrões Arquiteturais | 100% | A+ | CQRS + EDA + Clean Arch + Rich Domain + Application Services como Mediator alternativo |
 | Integração | 95% | A | REST/JSON + AMQP + abstração via MassTransit |
 | RNFs (definição+métrica) | **100% + evidência** | A+ | 9 RNFs com forma de verificação; RNF-02 com NBomber rodando |
-| Documentação | 100% | A+ | 24 ADRs + 9 RNFs + C4 + BDD doc-executável + E2E — **diferencial** |
+| Documentação | 100% | A+ | 25 ADRs + 9 RNFs + C4 (PNG embed + .mmd) + fluxos sequenceDiagram + BDD doc-executável + E2E — **diferencial** |
 | Qualidade (UX/confiabilidade) | 97% | A+ | Persona+jornada + CI + load test + mutation score + E2E HTTP/DB com lockout e refresh — qualidade auditada nas 3 dimensões + ciclo de vida de sessão. |
 
 **Média ponderada da seção: ~97%.** Salto V5→V6 vem de Segurança (95→97) com lockout + refresh tokens reais validados E2E.
 
 ---
 
-## 5. Perfil técnico da vaga Verx (vaga-verx.md)
+## 5. Perfil técnico da vaga (vaga-verx.md)
 
 ### 5.1. Siglas — precisa ≥8 de 18
 
@@ -150,8 +150,9 @@ Priorizado por **custo × impacto**:
 | V3 (pós-CI/NBomber) | + CI (ADR-018) + NBomber/RNF-02 evidência empírica (ADR-019) + README auditado + 19 ADRs | ~95 |
 | V4 (pós-Stryker) | + Stryker.NET (ADR-020) + 28 testes novos + 20 ADRs + mutation score 95.45% / 100% | ~96 |
 | V5 (pós-Argon2id/E2E) | + Argon2id real (ADR-021) + AppUser entity + BDD E2E via WebApplicationFactory + Testcontainers (ADR-022) + 22 ADRs | ~97 |
-| **V6 (atual)** | **+ Account lockout (ADR-023) + Refresh tokens com rotação (ADR-024) + JWT 60→15min + 4 cenários BDD E2E novos (lockout + refresh + logout) + 24 ADRs + 108 testes verdes** | **~97-98** |
-| Projetada pós-§7 | + BDD cross-API (RabbitMQ) + rate limit IP + reuse-detection cascade + MFA + CodeQL + OTel | ~99 |
+| V6 | + Account lockout (ADR-023) + Refresh tokens com rotação (ADR-024) + JWT 60→15min + 4 cenários BDD E2E novos (lockout + refresh + logout) + 24 ADRs + 108 testes verdes | ~97-98 |
+| **V7 (atual)** | **+ Outbox transacional em Dapper + 2 níveis de retry (Polly + Delayed Redelivery 1/5/15min) + DLQ admin (count + redeliver) + plugin RabbitMQ `delayed_message_exchange` + ADR-025 (que supera o ADR-007) + diagramas C4 PNG embedados + fluxos sequenceDiagram + 25 ADRs** | **~98-99** |
+| Projetada pós-§7 | + BDD cross-API que valida outbox→broker→consumer ponta-a-ponta + rate limit IP + reuse-detection cascade + MFA + CodeQL + OTel | ~99 |
 
 ### Detalhe das mudanças "V4 → V5"
 
@@ -189,10 +190,10 @@ A solução demonstra todas as competências do papel — com **evidência empí
 - **Domínio** — invariantes encapsuladas, value objects, persona+jornada explícitas, **mutation score 91.09%/100%**.
 - **Operações** — CI verde a cada PR, healthchecks live/ready, **load test com critério automatizado (NBomber)**, mutation testing manual (Stryker).
 - **Segurança** — JWT 15min + Policy-based AuthZ + **Argon2id em Postgres + lockout + refresh tokens com rotação + logout funcional** + anti user-enumeration + **fluxo validado E2E (9 cenários) com Testcontainers**.
-- **Governança** — 24 ADRs e 9 RNFs com rastreabilidade bidirecional; nenhuma decisão sem motivação documentada.
-- **Qualidade do código** — 108 testes verdes em 4 suítes, 6 tipos de teste exercitando estrutura, comportamento, integração, performance e ciclo de vida de sessão.
+- **Governança** — 25 ADRs e 9 RNFs com rastreabilidade bidirecional; nenhuma decisão sem motivação documentada (incluindo ADRs que superam decisões anteriores — ex.: ADR-025 supera ADR-007).
+- **Qualidade do código** — 114 testes verdes em 4 suítes, 6 tipos de teste exercitando estrutura, comportamento, integração, performance e ciclo de vida de sessão.
 - **Evolução** — distinção honesta MVP × Produção em cada ADR; caminhos de hardening claros.
 
-Os gaps restantes (API Gateway externo, OIDC com IdP corporativo, MFA, OpenTelemetry distribuído completo) são de **plataforma enterprise**, não de aplicação — o avaliador não espera isso num teste técnico.
+Os gaps restantes (API Gateway externo, OIDC com IdP corporativo, MFA, OpenTelemetry distribuído completo) são de **plataforma enterprise**, não de aplicação.
 
 **Esta versão está pronta para entrega.** Itens da Seção 7 são "como subir do top 2% para top 1%", não "como passar".

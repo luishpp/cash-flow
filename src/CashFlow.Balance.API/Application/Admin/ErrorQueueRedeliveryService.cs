@@ -25,6 +25,18 @@ public sealed class ErrorQueueRedeliveryService(IConfiguration configuration, IL
         };
 
         await using var connection = await factory.CreateConnectionAsync(ct);
+
+        // A DLQ é criada lazy pelo MassTransit quando a primeira mensagem esgota retries.
+        // Se ninguém falhou ainda, a queue não existe — nada a reprocessar (não é erro).
+        // Canal dedicado pro probe: passive-declare falha fechando o channel, então não dá pra reusar.
+        if (!await QueueExistsAsync(connection, ErrorQueueName, ct))
+        {
+            logger.LogInformation(
+                "DLQ '{Queue}' ainda não foi criada (nenhuma mensagem esgotou retries) — nada a reprocessar.",
+                ErrorQueueName);
+            return 0;
+        }
+
         await using var channel = await connection.CreateChannelAsync(cancellationToken: ct);
 
         int moved = 0;
@@ -75,6 +87,20 @@ public sealed class ErrorQueueRedeliveryService(IConfiguration configuration, IL
         catch
         {
             return 0;
+        }
+    }
+
+    private static async Task<bool> QueueExistsAsync(IConnection connection, string queueName, CancellationToken ct)
+    {
+        try
+        {
+            await using var probe = await connection.CreateChannelAsync(cancellationToken: ct);
+            await probe.QueueDeclarePassiveAsync(queueName, ct);
+            return true;
+        }
+        catch
+        {
+            return false;
         }
     }
 }

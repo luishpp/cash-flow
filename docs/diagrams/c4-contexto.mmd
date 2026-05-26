@@ -1,0 +1,18 @@
+graph TB
+    Comerciante["👤 <b>Comerciante (Carlos)</b><br/><i>Dono de mercearia que registra<br/>vendas e despesas, e consulta<br/>o saldo do dia</i>"]
+
+    Sistema["🏦 <b>Sistema CashFlow</b><br/><i>Permite registrar lançamentos<br/>(débito/crédito) e consultar<br/>o saldo diário consolidado</i>"]
+
+    SwaggerUI["📘 <b>Swagger UI</b><br/><i>Interface de descoberta e teste<br/>dos endpoints (incluído nas APIs)</i>"]
+
+    Comerciante -->|"Registra lançamentos<br/>e consulta saldo<br/>(HTTPS/JSON)"| Sistema
+    Sistema -.->|"Documentação<br/>auto-gerada"| SwaggerUI
+    Comerciante -->|"Explora endpoints<br/>(HTTPS)"| SwaggerUI
+
+    classDef person fill:#08427b,stroke:#052e56,color:#fff
+    classDef system fill:#1168bd,stroke:#0b4884,color:#fff
+    classDef external fill:#999999,stroke:#666666,color:#fff
+
+    class Comerciante person
+    class Sistema system
+    class SwaggerUI external

@@ -1,0 +1,29 @@
+graph LR
+    subgraph TxContext["Transactions context"]
+        TxRegister["<b>Transaction.Register(...)</b><br/><i>Aggregate Root</i>"]
+    end
+
+    Event["📨 <b>TransactionRegistered</b><br/>(CashFlow.Shared.Events)"]
+
+    Broker["📮 <b>RabbitMQ Broker</b>"]
+
+    subgraph BalContext["Balance context"]
+        Consumer["<b>ConsolidationService</b>"]
+        DailyBal["<b>DailyBalance.ApplyCredit/Debit</b><br/><i>Aggregate Root</i>"]
+        Consumer --> DailyBal
+    end
+
+    TxRegister -->|"publica<br/>após commit"| Event
+    Event -->|"transporte"| Broker
+    Broker -->|"AMQP (consume)"| Consumer
+
+    classDef context fill:#1168bd,stroke:#0b4884,color:#fff
+    classDef domain fill:#ef6c00,stroke:#b53d00,color:#fff
+    classDef event fill:#7e57c2,stroke:#4527a0,color:#fff
+    classDef broker fill:#f57c00,stroke:#bf5f00,color:#fff
+    classDef app fill:#26a69a,stroke:#00695c,color:#fff
+
+    class TxRegister,DailyBal domain
+    class Event event
+    class Broker broker
+    class Consumer app

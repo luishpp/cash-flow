@@ -1,0 +1,36 @@
+graph TB
+    Comerciante["👤 <b>Comerciante (Carlos)</b>"]
+
+    subgraph Sistema["🏦 Sistema CashFlow"]
+        TransactionsAPI["📦 <b>Transactions API</b><br/>[ASP.NET Core 10 / C#]<br/><i>Write side — registra<br/>débitos e créditos.<br/>Publica eventos.</i>"]
+
+        BalanceAPI["📊 <b>Balance API</b><br/>[ASP.NET Core 10 / C#]<br/><i>Read side — expõe saldo<br/>diário. Hospeda<br/>BackgroundService consumer.</i>"]
+
+        RabbitMQ["📮 <b>RabbitMQ</b><br/>[Broker AMQP]<br/><i>Persiste eventos<br/>TransactionRegistered.</i>"]
+
+        DBTransactions["🗄️ <b>PostgreSQL — schema 'transactions'</b><br/>[PostgreSQL 16]<br/><i>Persiste transactions.<br/>user: app_transactions<br/>(GRANT restrito)</i>"]
+
+        DBBalance["🗄️ <b>PostgreSQL — schema 'balance'</b><br/>[PostgreSQL 16]<br/><i>Persiste daily_balance<br/>+ processed_events.<br/>user: app_balance<br/>(GRANT restrito)</i>"]
+    end
+
+    Comerciante -->|"POST /api/v1/transactions<br/>GET /api/v1/transactions/{id}<br/>(HTTPS/JSON)"| TransactionsAPI
+    Comerciante -->|"GET /api/v1/balance/{date}<br/>GET /api/v1/balance?from=&to=<br/>(HTTPS/JSON)"| BalanceAPI
+
+    TransactionsAPI -->|"INSERT transaction<br/>(Dapper, transação)"| DBTransactions
+    TransactionsAPI -->|"Publica<br/>TransactionRegistered<br/>(AMQP)"| RabbitMQ
+
+    RabbitMQ -->|"Consume<br/>TransactionRegistered<br/>(AMQP, at-least-once,<br/>queue: balance.transaction-registered)"| BalanceAPI
+    BalanceAPI -->|"UPSERT daily_balance<br/>INSERT processed_events<br/>(Dapper, transação atômica)"| DBBalance
+    BalanceAPI -->|"SELECT daily_balance<br/>(Dapper, O(1) por date)"| DBBalance
+
+    classDef person fill:#08427b,stroke:#052e56,color:#fff
+    classDef writeContainer fill:#1168bd,stroke:#0b4884,color:#fff
+    classDef readContainer fill:#2e7d32,stroke:#1b5e20,color:#fff
+    classDef infraContainer fill:#f57c00,stroke:#bf5f00,color:#fff
+    classDef dataContainer fill:#6a1b9a,stroke:#4a148c,color:#fff
+
+    class Comerciante person
+    class TransactionsAPI writeContainer
+    class BalanceAPI readContainer
+    class RabbitMQ infraContainer
+    class DBTransactions,DBBalance dataContainer

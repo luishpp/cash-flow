@@ -1,0 +1,37 @@
+sequenceDiagram
+    autonumber
+    participant MQ as RabbitMQ<br/>(queue: balance.transaction-registered)
+    participant Cons as TransactionConsumer
+    participant Polly as Polly ResiliencePipeline<br/>("consumer-pipeline")
+    participant Svc as ConsolidationService
+    participant UoW as IUnitOfWork
+    participant Events as IProcessedEventsRepository
+    participant BalanceRepo as IBalanceRepository
+    participant Dom as DailyBalance<br/>(Rich Domain)
+
+    MQ->>Cons: TransactionRegistered<br/>(at-least-once delivery)
+    Cons->>Polly: ExecuteAsync(handler)
+    Note over Polly: Retry 3x exp backoff + jitter
+
+    Polly->>Svc: ApplyAsync(evt, consumerName)
+    Svc->>UoW: BeginAsync()
+
+    Svc->>Events: ExistsAsync(EventId, consumerName)
+    alt Já processado (idempotência)
+        Events-->>Svc: true
+        Svc->>UoW: CommitAsync()
+        Note over Svc: return — não reaplica
+    else Novo evento
+        Events-->>Svc: false
+        Svc->>BalanceRepo: GetByDateAsync(evt.MovementDate)
+        BalanceRepo-->>Svc: DailyBalance ou null
+        Svc->>Dom: ApplyCredit/ApplyDebit(evt.Amount)
+        Svc->>BalanceRepo: UpsertAsync(balance)
+        Svc->>Events: RegisterAsync(EventId, consumerName)
+        Svc->>UoW: CommitAsync()
+        Note over UoW: Atomic — saldo + marcador<br/>na mesma transação
+    end
+
+    Polly-->>Cons: OK
+    Cons->>MQ: Ack
+    Note over MQ: mensagem removida da fila

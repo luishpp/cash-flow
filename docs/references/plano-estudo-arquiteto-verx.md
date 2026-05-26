@@ -1,8 +1,8 @@
-# Plano de Estudo — Arquiteto de Software (Verx)
+# Plano de Estudo — Arquiteto de Software
 
 ## Contexto
 
-Vaga de Arquiteto de Software via Verx Tecnologia, provavelmente alocado em cliente do setor financeiro ou regulado. O perfil exige visão de governança arquitetural + profundidade técnica. A estratégia é reforçar os pontos de gap sem abandonar seus pontos fortes (.NET/C#, Azure, sustentação de sistemas críticos).
+Vaga de Arquiteto de Software via Tecnologia, provavelmente alocado em cliente do setor financeiro ou regulado. O perfil exige visão de governança arquitetural + profundidade técnica. A estratégia é reforçar os pontos de gap sem abandonar seus pontos fortes (.NET/C#, Azure, sustentação de sistemas críticos).
 
 ---
 

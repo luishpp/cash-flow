@@ -37,4 +37,4 @@ Consistência eventual entre o write side e o read side — saldo consolidado po
 ## Evolução
 
 - Failover multi-região (Azure Front Door + read replicas).
-- Outbox Pattern para eliminar a janela documentada em [ADR-007](../adrs/adr-007-publish-after-commit.md).
+- ~~Outbox Pattern para eliminar a janela documentada em ADR-007~~ — **já implementado** em [ADR-025](../adrs/adr-025-outbox-and-dlq.md) (outbox transacional em Dapper + 2 níveis de retry + DLQ visível com endpoint admin).

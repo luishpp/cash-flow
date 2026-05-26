@@ -1,0 +1,31 @@
+graph LR
+    Client["👤 Cliente HTTPS"]
+
+    TransactionsAPI["📦 <b>Transactions API :5001</b><br/><i>Write side</i>"]
+    BalanceAPI["📊 <b>Balance API :5002</b><br/><i>Read side + BackgroundService</i>"]
+
+    RabbitMQ["📮 <b>RabbitMQ</b><br/>AMQP event"]
+
+    SchemaTx["🗄️ <b>schema: transactions</b><br/>(PostgreSQL — db: cashflow)<br/>GRANTs por usuário"]
+    SchemaBal["🗄️ <b>schema: balance</b><br/>(PostgreSQL — db: cashflow)<br/>GRANTs por usuário"]
+
+    Client -->|"write"| TransactionsAPI
+    Client -->|"read"| BalanceAPI
+
+    TransactionsAPI -->|"AMQP/event"| RabbitMQ
+    RabbitMQ -->|"AMQP/event"| BalanceAPI
+
+    TransactionsAPI -->|"Dapper"| SchemaTx
+    BalanceAPI -->|"Dapper"| SchemaBal
+
+    classDef api fill:#1168bd,stroke:#0b4884,color:#fff
+    classDef readApi fill:#2e7d32,stroke:#1b5e20,color:#fff
+    classDef broker fill:#f57c00,stroke:#bf5f00,color:#fff
+    classDef db fill:#6a1b9a,stroke:#4a148c,color:#fff
+    classDef client fill:#08427b,stroke:#052e56,color:#fff
+
+    class Client client
+    class TransactionsAPI api
+    class BalanceAPI readApi
+    class RabbitMQ broker
+    class SchemaTx,SchemaBal db

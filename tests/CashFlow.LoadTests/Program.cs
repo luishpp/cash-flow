@@ -57,8 +57,12 @@ public static class Program
         })
         .WithoutWarmUp()
         .WithLoadSimulations(
-            // Ramp-up: 0 → 50 rps em 10s (evita falso-positivo de cold start)
-            Simulation.RampingConstant(copies: TargetRatePerSecond, during: TimeSpan.FromSeconds(RampUpSeconds)),
+            // Ramp-up: 0 → 50 rps em 10s (evita falso-positivo de cold start).
+            // RampingInject (open model) — incrementa a taxa de injeção; precisa casar com Inject abaixo
+            // (NBomber proíbe misturar open model com closed model como RampingConstant/KeepConstant).
+            Simulation.RampingInject(rate: TargetRatePerSecond,
+                                     interval: TimeSpan.FromSeconds(1),
+                                     during: TimeSpan.FromSeconds(RampUpSeconds)),
             // Sustenta 50 rps por 60s — 3.000 requisições alvo
             Simulation.Inject(rate: TargetRatePerSecond,
                               interval: TimeSpan.FromSeconds(1),

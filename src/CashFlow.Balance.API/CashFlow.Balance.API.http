@@ -8,5 +8,5 @@ GET {{base}}/health/ready
 ### Saldo do dia
 GET {{base}}/api/v1/balance/2026-05-22
 
-### Saldo por período
+### Saldo consolidado por período (totais agregados + days[])
 GET {{base}}/api/v1/balance?from=2026-05-01&to=2026-05-31

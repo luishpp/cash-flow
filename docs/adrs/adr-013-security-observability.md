@@ -27,7 +27,7 @@ Os **RNF-05 (Segurança)** e **RNF-09 (Observabilidade)** são objetivos do desa
 ## Evolução documentada
 
 - **OAuth 2.0 / OIDC** via Microsoft Entra ID (`Microsoft.Identity.Web`) — implementado quando houver identidade definida (web/mobile/integrações).
-- **API Gateway (Azure APIM / Apigee)** — para rate limiting distribuído, validação central de JWT, transformação de payload, developer portal. Tópico relevante para a vaga Verx.
+- **API Gateway (Azure APIM / Apigee)** — para rate limiting distribuído, validação central de JWT, transformação de payload, developer portal. Tópico relevante para a vaga.
 - **OpenTelemetry** completo (traces + métricas + logs) com Application Insights — substitui o Serilog/Console quando produção justificar. Propaga `W3C TraceContext` por headers AMQP entre Transactions API → broker → Balance API.
 - **Stryker.NET** — testes de mutação para validar qualidade dos testes unitários (complementa ArchTests da [ADR-012](adr-012-architecture-tests.md)).
 

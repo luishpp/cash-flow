@@ -13,22 +13,9 @@ CashFlow é um sistema de controle de fluxo de caixa diário, composto por **doi
 
 O design responde a dois requisitos não-negociáveis do enunciado: o **write side não pode cair se o read side cair** ([RNF-01](rnfs/rnf-01-disponibilidade.md)) e o **read side precisa absorver 50 RPS com no máximo 5% de perda** ([RNF-02](rnfs/rnf-02-carga.md)). Toda decisão arquitetural se justifica nessas duas restrições ou nas sete dimensões adicionais cobradas pelo desafio (Escalabilidade, Resiliência, Segurança, Padrões, Integração, Manutenibilidade, Observabilidade).
 
-```text
-                 ┌─────────────────┐                ┌──────────────────────┐
-                 │  Transactions   │   AMQP/event   │      Balance         │
-   write ──────▶ │     API :5001   │ ──── ▶ ─────▶ │       API :5002      │
-                 │                 │   (RabbitMQ)   │  + BackgroundService │
-                 └────────┬────────┘                └─────────┬────────────┘
-                          │ Dapper                            │ Dapper
-                          ▼                                   ▼
-                     schema:transactions             schema:balance
-                     (PostgreSQL — db: cashflow, GRANTs por usuário)
-                                                              ▲
-                                                              │ read
-                                                       (cliente HTTPS)
-```
+![Visão geral — Containers](diagrams/c4-containers.png)
 
-C4 completo: [`diagrams/c4-containers.md`](diagrams/c4-containers.md).
+> Fonte editável: [`diagrams/c4-containers.mmd`](diagrams/c4-containers.mmd) · Página C4 completa: [`diagrams/c4-containers.md`](diagrams/c4-containers.md).
 
 ---
 
@@ -41,7 +28,7 @@ A solução combina **quatro estilos**, cada um respondendo a uma preocupação 
 **Escopo:** macro-arquitetura — separação write/read em dois serviços.
 
 | Lado | Projeto | Responsabilidade |
-|---|---|---|
+| --- | --- | --- |
 | Command (write) | `CashFlow.Transactions.API` | Registra `Transaction`, persiste, publica `TransactionRegistered` |
 | Query (read) | `CashFlow.Balance.API` | Mantém projeção `DailyBalance` via consumer; expõe queries |
 
@@ -59,18 +46,9 @@ A Transactions API **não conhece** a Balance API. Publica `CashFlow.Shared.Even
 
 **Escopo:** organização interna de cada projeto API — camadas com **regra de dependência** (Dependency Rule).
 
-```text
-        Controllers       ──┐
-            │               │
-            ▼               │
-        Application         │  Direção das dependências:
-            │               │  Controllers → Application → Domain
-            ▼               │  Infrastructure → Domain (implementa interfaces)
-         Domain  ◀── implements ── Infrastructure
-                            │
-                            ▼
-            ╳ proibido: Domain referenciar Application/Infrastructure/AspNetCore/Dapper
-```
+![Clean Architecture — regra de dependência](diagrams/clean-architecture.png)
+
+> Fonte editável: [`diagrams/clean-architecture.mmd`](diagrams/clean-architecture.mmd)
 
 A regra é **verificada em CI** via NetArchTest (fitness functions). Detalhes: [ADR-012](adrs/adr-012-architecture-tests.md).
 
@@ -96,81 +74,118 @@ Detalhes: [ADR-009](adrs/adr-009-rich-domain-model.md).
 CashFlow.sln                                  ← solution file
 │
 ├── src/
-│   ├── CashFlow.Transactions.API/            ← Write side (3 prod project)
-│   │   ├── Controllers/                      ← TransactionsController
+│   ├── CashFlow.Transactions.API/            ← Write side + /auth + Outbox dispatcher
+│   │   ├── Controllers/                      ← TransactionsController, AuthController
 │   │   ├── Domain/                           ← Rich Domain Model
-│   │   │   ├── Entities/                     ← AuditableEntity, Transaction
+│   │   │   ├── Entities/                     ← AuditableEntity, Transaction, AppUser, RefreshToken
 │   │   │   ├── ValueObjects/                 ← Money, TransactionType, MovementDate
 │   │   │   └── Exceptions/                   ← DomainException
-│   │   ├── Application/                      ← Application Services + DTOs + Validators
+│   │   ├── Application/
+│   │   │   ├── Auth/                         ← AuthenticationService, Argon2idPasswordHasher,
+│   │   │   │                                    Sha256RefreshTokenFactory, LockoutSettings,
+│   │   │   │                                    RefreshTokenSettings, AuthDtos
 │   │   │   ├── DTOs/                         ← RegisterTransactionRequest, TransactionResponse
 │   │   │   ├── Services/                     ← ITransactionService, TransactionService
 │   │   │   └── Validators/                   ← RegisterTransactionValidator (FluentValidation)
-│   │   ├── Infrastructure/                   ← Persistence + Messaging + Migrations
-│   │   │   ├── Persistence/                  ← IDbConnectionFactory, NpgsqlConnectionFactory,
-│   │   │   │                                    IUnitOfWork, DapperUnitOfWork
-│   │   │   ├── Repositories/                 ← ITransactionRepository, TransactionRepository
-│   │   │   ├── Messaging/                    ← IEventPublisher, MassTransitEventPublisher
+│   │   ├── Infrastructure/
+│   │   │   ├── Auth/                         ← DemoUserSeeder (Argon2id, primeiro startup)
+│   │   │   ├── Persistence/                  ← (Conn factory, UoW Dapper, DateOnlyTypeHandler)
+│   │   │   ├── Repositories/                 ← TransactionRepository, AppUserRepository,
+│   │   │   │                                    RefreshTokenRepository
+│   │   │   ├── Messaging/                    ← IEventPublisher, MassTransitEventPublisher,
+│   │   │   │                                    NoOpEventPublisher (testing)
+│   │   │   ├── Outbox/                       ← IOutboxRepository, OutboxRepository,
+│   │   │   │                                    OutboxDispatcher (BackgroundService — ADR-025)
 │   │   │   └── Migrations/
-│   │   │       ├── MigrationRunner.cs        ← DbUp orchestration
-│   │   │       └── Scripts/                  ← 001_create_schema.sql, 002_create_transactions_table.sql
+│   │   │       ├── MigrationRunner.cs        ← DbUp (journal em transactions.schemaversions)
+│   │   │       └── Scripts/                  ← 002_create_transactions_table,
+│   │   │                                        003_create_app_users_table,
+│   │   │                                        004_alter_app_users_lockout,
+│   │   │                                        005_create_refresh_tokens_table,
+│   │   │                                        006_create_outbox_events
 │   │   ├── Program.cs                        ← Composition root
-│   │   ├── appsettings.json                  ← Connection strings, RabbitMq host, Serilog
+│   │   ├── TransactionsApiAssembly.cs        ← Marker p/ WebApplicationFactory dos BDD
+│   │   ├── appsettings.json
 │   │   └── Dockerfile
 │   │
-│   ├── CashFlow.Balance.API/                 ← Read side + consumer
-│   │   ├── Controllers/                      ← BalanceController
+│   ├── CashFlow.Balance.API/                 ← Read side + Consumer + DLQ admin
+│   │   ├── Controllers/                      ← BalanceController, AdminController (DLQ)
 │   │   ├── Consumers/                        ← TransactionConsumer (BackgroundService)
 │   │   ├── Domain/
 │   │   │   ├── Entities/                     ← DailyBalance
 │   │   │   └── Exceptions/                   ← DomainException
 │   │   ├── Application/
+│   │   │   ├── Admin/                        ← ErrorQueueRedeliveryService (move da DLQ)
 │   │   │   ├── DTOs/                         ← BalanceResponse
-│   │   │   └── Services/                     ← IBalanceQueryService, BalanceQueryService,
-│   │   │                                        IConsolidationService, ConsolidationService
+│   │   │   └── Services/                     ← BalanceQueryService, ConsolidationService
 │   │   ├── Infrastructure/
 │   │   │   ├── Persistence/                  ← (mesmo padrão de Transactions)
-│   │   │   ├── Repositories/                 ← IBalanceRepository, BalanceRepository,
-│   │   │   │                                    IProcessedEventsRepository, ProcessedEventsRepository
-│   │   │   └── Migrations/Scripts/           ← 001_create_schema.sql,
-│   │   │                                        002_create_daily_balance.sql,
-│   │   │                                        003_create_processed_events.sql
-│   │   ├── Program.cs
+│   │   │   ├── Repositories/                 ← BalanceRepository, ProcessedEventsRepository
+│   │   │   └── Migrations/
+│   │   │       └── Scripts/                  ← 002_create_daily_balance,
+│   │   │                                        003_create_processed_events
+│   │   ├── Program.cs                        ← + UseDelayedRedelivery (ADR-025) + SAC + RL
 │   │   ├── appsettings.json
 │   │   └── Dockerfile
 │   │
 │   └── CashFlow.Shared/                      ← Shared Kernel mínimo
-│       └── Events/
-│           └── TransactionRegistered.cs      ← Contrato do evento entre os dois contextos
+│       ├── Events/
+│       │   └── TransactionRegistered.cs      ← Contrato do evento entre os dois contextos
+│       └── Security/                         ← JwtTokenService, JwtSettings,
+│                                                AuthorizationPolicies, CashFlowRoles,
+│                                                SecurityServiceCollectionExtensions
 │
-├── tests/
-│   ├── CashFlow.UnitTests/                   ← 24 testes — Domain
-│   │   ├── Transactions/Domain/              ← TransactionTests, MoneyTests
-│   │   └── Balance/Domain/                   ← DailyBalanceTests
+├── tests/                                    ← 4 projetos de teste
+│   ├── CashFlow.UnitTests/                   ← 85 testes — Domain de ambos contextos
+│   │   ├── Transactions/Domain/              ← TransactionTests, MoneyTests, MovementDateTests,
+│   │   │                                        TransactionTypeTests, AppUserTests, RefreshTokenTests
+│   │   ├── Balance/Domain/                   ← DailyBalanceTests
+│   │   ├── stryker-config.json               ← Stryker.NET (ADR-020) — threshold ≥ 70%
+│   │   └── StrykerOutput/                    ← Reports HTML (gitignored)
 │   │
-│   └── CashFlow.Architecture.Tests/          ← 8 fitness functions (NetArchTest)
-│       ├── LayerDependencyTests.cs           ← Dependency Rule (Clean Architecture)
-│       ├── ImmutabilityTests.cs              ← Rich Domain (sem setters públicos)
-│       └── NamingConventionTests.cs          ← Repositories/Interfaces
+│   ├── CashFlow.Architecture.Tests/          ← 8 fitness functions (NetArchTest — ADR-012)
+│   │   ├── LayerDependencyTests.cs           ← Dependency Rule (Clean Architecture)
+│   │   ├── ImmutabilityTests.cs              ← Rich Domain (sem setters públicos)
+│   │   └── NamingConventionTests.cs          ← Repositories/Interfaces
+│   │
+│   ├── CashFlow.Bdd.Tests/                   ← 15 cenários Reqnroll pt-BR (ADR-017, ADR-022)
+│   │   ├── Features/                         ← AutenticacaoE2E.feature, SaldoConsolidado.feature
+│   │   ├── Steps/                            ← AutenticacaoE2ESteps (E2E via WebApplicationFactory
+│   │   │                                        + Testcontainers Postgres) + SaldoConsolidadoSteps
+│   │   │                                        (BDD de domínio puro)
+│   │   ├── Setup/                            ← CashFlowApiFixture (boot da API "in-process")
+│   │   └── reqnroll.json
+│   │
+│   └── CashFlow.LoadTests/                   ← NBomber (ADR-019) — não é IsTestProject;
+│                                                roda via `dotnet run --project ... -c Release`
 │
 ├── infra/
-│   └── postgres/
-│       └── init.sql                          ← Cria users + schemas + GRANTs
+│   ├── postgres/init.sql                     ← Users + schemas + GRANTs (executa no 1º start)
+│   └── rabbitmq/Dockerfile                   ← + plugin rabbitmq_delayed_message_exchange
+│                                                (necessário p/ UseDelayedRedelivery — ADR-025)
+│
+├── .github/
+│   └── workflows/
+│       ├── ci.yml                            ← build + 3 suítes (push/PR)
+│       └── mutation.yml                      ← Stryker (workflow_dispatch manual)
+│
+├── .config/
+│   └── dotnet-tools.json                     ← Stryker como local tool
 │
 ├── docs/                                     ← Documentação arquitetural
 │   ├── architecture.md                       ← Este documento
 │   ├── analysis/analise-desafio-arquiteto.md ← Análise do desafio
-│   ├── adrs/                                 ← 13 ADRs individuais + README índice
+│   ├── adrs/                                 ← 25 ADRs individuais + README índice
 │   ├── rnfs/                                 ← 9 RNFs individuais + README índice
-│   ├── diagrams/                             ← 4 diagramas C4 (Mermaid)
+│   ├── diagrams/                             ← Diagramas C4 + fluxos (PNG embedado + fonte .mmd)
 │   ├── challenge/                            ← PDF original do desafio
 │   └── references/                           ← Material de estudo
 │
-├── docker-compose.yml                        ← Orquestração: Postgres + RabbitMQ + 2 APIs
+├── docker-compose.yml                        ← Postgres + RabbitMQ (custom) + 2 APIs
 └── README.md                                 ← Entry point + glossário + instruções
 ```
 
-**Totais:** 3 projetos de produção + 2 de testes = 5 projetos no `.sln`.
+**Totais:** 3 projetos de produção + 4 de teste/carga = 7 projetos no `.sln`. **114 testes** automatizados (91 unit + 8 architecture + 15 BDD).
 
 ### 3.2. Grafo de dependências entre projetos
 
@@ -219,7 +234,7 @@ Cada API segue o mesmo padrão de quatro camadas. As pastas refletem a regra de 
 ### 4.1. Camadas e responsabilidades
 
 | Camada | Pasta | Responsabilidade | O que NÃO pode |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **Domain** | `Domain/` | Entidades, Value Objects, regras de negócio e invariantes | Referenciar Application, Infrastructure, Controllers, ASP.NET, Dapper, MassTransit, FluentValidation |
 | **Application** | `Application/` | Orquestração de casos de uso (Services), DTOs, validação | Referenciar Controllers, ASP.NET-specifics |
 | **Infrastructure** | `Infrastructure/` | Persistência (Dapper), mensageria (MassTransit), migrations (DbUp) | Conhecer detalhes de HTTP |
@@ -227,29 +242,10 @@ Cada API segue o mesmo padrão de quatro camadas. As pastas refletem a regra de 
 
 ### 4.2. Regra de dependência (visualizada)
 
-```text
-        ┌──────────────────────────────────────┐
-        │   Controllers + Program.cs           │  ← entrada (HTTP)
-        │   (ApiBehavior, Swagger, Middleware) │
-        └───────────────────┬──────────────────┘
-                            │ usa
-                            ▼
-        ┌──────────────────────────────────────┐
-        │   Application                        │  ← orquestração
-        │   (Services, DTOs, Validators)       │
-        └──────┬────────────────────┬──────────┘
-               │ usa                │ usa interfaces de
-               ▼                    ▼
-        ┌────────────────┐  ┌──────────────────────────┐
-        │   Domain       │◀─│   Infrastructure         │
-        │   (Entities,   │  │   (Repositories, UoW,    │
-        │    VOs, Excs)  │  │    MessageBus,           │
-        │                │  │    Migrations)           │
-        └────────────────┘  └──────────────────────────┘
-                  ▲ implementa interfaces
-                  │ (Repository, Publisher) definidas pelo Domain
-```
+![Regra de dependência — versão detalhada](diagrams/regra-dependencia.png)
 
+> Fonte editável: [`diagrams/regra-dependencia.mmd`](diagrams/regra-dependencia.mmd)
+>
 > **Observação:** neste MVP, as **interfaces de repositório** (`ITransactionRepository`, `IBalanceRepository`) vivem em `Infrastructure/Repositories/` (não em `Domain/`). Trade-off pragmático: evitar uma pasta extra `Domain/Abstractions/` para 2 entidades. Em projetos maiores, mover para `Domain/` deixa a regra de dependência mais óbvia. Os testes de arquitetura validam o ponto que importa: `Domain` não conhece `Infrastructure`.
 
 ### 4.3. Validação automática (fitness functions)
@@ -257,7 +253,7 @@ Cada API segue o mesmo padrão de quatro camadas. As pastas refletem a regra de 
 `CashFlow.Architecture.Tests` valida no CI:
 
 | Teste | Garantia |
-|---|---|
+| --- | --- |
 | `Transactions_Domain_MustNotDependOn_Infrastructure_Application_orAspNetCore` | Domain isolado |
 | `Balance_Domain_MustNotDependOn_Infrastructure_Application_orAspNetCore` | Domain isolado |
 | `Transactions_Application_MustNotDependOn_Controllers` | Application não conhece HTTP |
@@ -273,94 +269,35 @@ Cada API segue o mesmo padrão de quatro camadas. As pastas refletem a regra de 
 
 ### 5.1. Fluxo de escrita: `POST /api/v1/transactions`
 
-```text
-Cliente HTTP
-    │ HTTPS/JSON
-    ▼
-TransactionsController.Register()
-    │
-    ├─▶ FluentValidation (RegisterTransactionValidator)
-    │     └─▶ HTTP 400 se falhar
-    │
-    ▼
-TransactionService.RegisterAsync(request)
-    │
-    ├─▶ TransactionTypeExtensions.Parse(request.Type)
-    │
-    ├─▶ Transaction.Register(amount, type, description, movementDate)
-    │     │
-    │     ├─▶ Money.From(amount)  [VO valida positividade + casas decimais]
-    │     ├─▶ MovementDate.From(date) [VO valida "não-futuro"]
-    │     └─▶ HTTP 422 se DomainException
-    │
-    ├─▶ IUnitOfWork.BeginAsync()
-    ├─▶ ITransactionRepository.InsertAsync(transaction)
-    ├─▶ IUnitOfWork.CommitAsync()
-    │
-    └─▶ IEventPublisher.PublishAsync(new TransactionRegistered(...))
-          │
-          ▼
-       RabbitMQ (queue: balance.transaction-registered)
+**Caminho síncrono (request HTTP):**
 
-[HTTP 201 Created] devolvido ao cliente
-```
+![Fluxo de escrita — sync](diagrams/fluxo-escrita.png)
 
-**ADRs envolvidas:** [ADR-009](adrs/adr-009-rich-domain-model.md) (Rich Domain), [ADR-010](adrs/adr-010-dapper.md) (Dapper+UoW), [ADR-007](adrs/adr-007-publish-after-commit.md) (publish após commit).
+> Fonte editável: [`diagrams/fluxo-escrita.mmd`](diagrams/fluxo-escrita.mmd)
+
+**Caminho assíncrono (publish — fora do request):**
+
+![Fluxo de outbox dispatch — async](diagrams/fluxo-outbox-dispatch.png)
+
+> Fonte editável: [`diagrams/fluxo-outbox-dispatch.mmd`](diagrams/fluxo-outbox-dispatch.mmd)
+
+**Por que outbox + dispatcher:** o `INSERT transação` e o `INSERT outbox` rodam na **mesma UoW** — se o broker estiver fora, a transação ainda é persistida e o evento fica `WHERE published_at IS NULL` até o dispatcher conseguir publicar. Fecha a janela que o [ADR-007](adrs/adr-007-publish-after-commit.md) reconhecia (publish-after-commit perdido). Detalhes da reliability completa em [ADR-025](adrs/adr-025-outbox-and-dlq.md).
+
+**ADRs envolvidas:** [ADR-009](adrs/adr-009-rich-domain-model.md) (Rich Domain), [ADR-010](adrs/adr-010-dapper.md) (Dapper+UoW), [ADR-015](adrs/adr-015-application-services-no-mediatr.md) (Application Service dispatcher), [ADR-025](adrs/adr-025-outbox-and-dlq.md) (Outbox + Delayed Redelivery + DLQ), e a [ADR-007](adrs/adr-007-publish-after-commit.md) (superada).
 
 ### 5.2. Fluxo de consumo: `TransactionConsumer`
 
-```text
-RabbitMQ (queue: balance.transaction-registered)
-    │ at-least-once delivery
-    ▼
-TransactionConsumer.Consume(ConsumeContext<TransactionRegistered>)
-    │
-    └─▶ Polly ResiliencePipeline ("consumer-pipeline")
-          │ Retry 3x exponential backoff + jitter
-          ▼
-       ConsolidationService.ApplyAsync(evt, consumerName)
-          │
-          ├─▶ IUnitOfWork.BeginAsync()
-          │
-          ├─▶ IProcessedEventsRepository.ExistsAsync(EventId, consumerName)
-          │     │
-          │     └─▶ Se EXISTE: commit + return (idempotente)
-          │
-          ├─▶ IBalanceRepository.GetByDateAsync(evt.MovementDate) ?? DailyBalance.New(date)
-          │
-          ├─▶ balance.ApplyCredit/ApplyDebit(evt.Amount)  [Rich Domain]
-          │
-          ├─▶ IBalanceRepository.UpsertAsync(balance)
-          ├─▶ IProcessedEventsRepository.RegisterAsync(EventId, consumerName)
-          │
-          └─▶ IUnitOfWork.CommitAsync()   [atomic: saldo + marcador]
+![Fluxo de consumo — Balance API](diagrams/fluxo-consumo.png)
 
-MassTransit Ack → mensagem removida da fila
-```
+> Fonte editável: [`diagrams/fluxo-consumo.mmd`](diagrams/fluxo-consumo.mmd)
 
 **ADRs envolvidas:** [ADR-002](adrs/adr-002-rabbitmq-masstransit.md) (broker), [ADR-005](adrs/adr-005-polly-retry.md) (Polly), [ADR-011](adrs/adr-011-idempotency.md) (idempotência).
 
 ### 5.3. Fluxo de leitura: `GET /api/v1/balance/{date}`
 
-```text
-Cliente HTTP
-    │ HTTPS/JSON
-    ▼
-RateLimiter (FixedWindow: 50 req/s + queue 5)
-    │ HTTP 429 se exceder (com Retry-After)
-    ▼
-BalanceController.GetByDate(date)
-    │
-    └─▶ BalanceQueryService.GetByDateAsync(date)
-          │
-          ├─▶ IUnitOfWork.BeginAsync()
-          └─▶ IBalanceRepository.GetByDateAsync(date)
-                │
-                └─▶ SELECT ... FROM balance.daily_balance WHERE date = @date
-                    [O(1) — projeção já pré-calculada]
+![Fluxo de leitura — saldo consolidado](diagrams/fluxo-leitura.png)
 
-[HTTP 200 + JSON com totalCredits, totalDebits, balance, updatedAt]
-```
+> Fonte editável: [`diagrams/fluxo-leitura.mmd`](diagrams/fluxo-leitura.mmd)
 
 **ADRs envolvidas:** [ADR-006](adrs/adr-006-rate-limiting.md) (rate limit), [ADR-001](adrs/adr-001-cqrs.md) (CQRS: leitura O(1) é consequência de termos a projeção pronta).
 
@@ -371,7 +308,7 @@ BalanceController.GetByDate(date)
 ### 6.1. Os dois contextos
 
 | Contexto | Projeto | Linguagem ubíqua | Aggregate Root |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **Transactions** | `CashFlow.Transactions.API` | "Lançamento", "registrar", "débito/crédito" | `Transaction` |
 | **Balance** | `CashFlow.Balance.API` | "Saldo diário", "consolidado", "aplicar lançamento ao saldo" | `DailyBalance` |
 
@@ -396,19 +333,9 @@ CashFlow.Shared/
 
 ### 6.3. Comunicação entre contextos
 
-```text
-[Transactions context]                          [Balance context]
-   ─────────────────                              ─────────────────
-   Transaction.Register(...)                     DailyBalance.ApplyCredit/Debit
-            │                                              ▲
-            │ TransactionRegistered                        │ ConsolidationService
-            │ (CashFlow.Shared.Events)                     │
-            ▼                                              │
-        ┌─────────┐                                   ┌────────┐
-        │RabbitMQ │ ──── AMQP ─────────────────────▶ │Consumer│
-        │ Broker  │                                   │        │
-        └─────────┘                                   └────────┘
-```
+![Comunicação entre bounded contexts](diagrams/comunicacao-contextos.png)
+
+> Fonte editável: [`diagrams/comunicacao-contextos.mmd`](diagrams/comunicacao-contextos.mmd)
 
 - **Sem chamada síncrona** entre os contextos — desacoplamento total.
 - **Sem banco compartilhado** — schemas isolados com GRANTs distintos.
@@ -419,10 +346,10 @@ CashFlow.Shared/
 ## 7. Onde ler mais
 
 | Quero entender... | Comece por |
-|---|---|
-| **Por que** cada decisão foi tomada (com trade-offs) | [`adrs/`](adrs/) — 13 ADRs individuais |
+| --- | --- |
+| **Por que** cada decisão foi tomada (com trade-offs) | [`adrs/`](adrs/) — 25 ADRs individuais |
 | **Quais requisitos** motivam cada decisão | [`rnfs/`](rnfs/) — 9 RNFs individuais |
-| **Como** os componentes se relacionam visualmente | [`diagrams/`](diagrams/) — 4 diagramas C4 em Mermaid |
+| **Como** os componentes se relacionam visualmente | [`diagrams/`](diagrams/) — diagramas C4 + fluxos + estruturais (PNG embedado + fonte `.mmd` editável) |
 | **Quem é o usuário** e qual a jornada | [`analysis/analise-desafio-arquiteto.md` § 2-3](analysis/analise-desafio-arquiteto.md) |
 | **Como rodar** localmente | [`../README.md`](../README.md) |
 | **O que cada termo significa** (pt-br ↔ en-us) | [`../README.md` — Glossário](../README.md#glossário-de-termos) |

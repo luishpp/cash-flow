@@ -14,7 +14,7 @@ public sealed class BalanceQueryService(IUnitOfWork uow, IBalanceRepository repo
         return balance is null ? null : ToResponse(balance);
     }
 
-    public async Task<IReadOnlyList<BalanceResponse>> ListByPeriodAsync(
+    public async Task<BalancePeriodResponse> ListByPeriodAsync(
         DateOnly from, DateOnly to, CancellationToken ct = default)
     {
         if (to < from)
@@ -22,7 +22,20 @@ public sealed class BalanceQueryService(IUnitOfWork uow, IBalanceRepository repo
 
         await uow.BeginAsync(ct);
         var balances = await repo.ListByPeriodAsync(from, to, ct);
-        return balances.Select(ToResponse).ToList();
+
+        // Agregação em memória sobre o resultado já carregado — sem nova query SQL.
+        // Tabela `daily_balance` só tem linha em dias com movimento, então o agregado
+        // ignora naturalmente dias zerados.
+        var days = balances.Select(ToResponse).ToList();
+        var totalCredits = days.Sum(d => d.TotalCredits);
+        var totalDebits = days.Sum(d => d.TotalDebits);
+
+        return new BalancePeriodResponse(
+            from, to,
+            totalCredits,
+            totalDebits,
+            totalCredits - totalDebits,
+            days);
     }
 
     private static BalanceResponse ToResponse(DailyBalance b) =>

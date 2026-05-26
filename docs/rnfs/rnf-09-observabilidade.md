@@ -1,6 +1,6 @@
 # RNF-09 — Observabilidade
 
-**Origem:** Derivado *(implícito em "Manutenibilidade" + "Resiliência" do PDF; cobrado também na descrição da vaga Verx)*.
+**Origem:** Derivado *(implícito em "Manutenibilidade" + "Resiliência" do PDF; cobrado também na descrição da vaga)*.
 
 ## Declaração
 

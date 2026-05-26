@@ -42,7 +42,7 @@ A combinação **LTS + janela longa + ecossistema maduro o suficiente** torna .N
 
 ## Por que NÃO .NET 9 (descarte direto)
 
-- **STS de 18 meses** — incompatível com ciclos de change management em ambientes financeiros/regulados (onde a vaga Verx provavelmente está alocada).
+- **STS de 18 meses** — incompatível com ciclos de change management em ambientes financeiros/regulados (onde a vaga provavelmente está alocada).
 - A Microsoft posiciona STS como **preview da próxima LTS** — para quem quer testar features que aparecerão no .NET 10 (par seguinte).
 - Comitês de arquitetura tipicamente **bloqueiam STS por política** — citá-lo demonstra entendimento de governance corporativa.
 
@@ -65,8 +65,8 @@ A combinação **LTS + janela longa + ecossistema maduro o suficiente** torna .N
 
 A migração foi validada por:
 
-1. **Build limpo**: `dotnet build` → 0 warnings, 0 errors em todos os 5 projetos.
-2. **Testes**: `dotnet test` → 24 unitários + 8 de arquitetura, 32/32 passando.
+1. **Build limpo**: `dotnet build` → 0 warnings, 0 errors em todos os 7 projetos (3 src + 4 tests/load).
+2. **Testes**: `dotnet test` → 85 unitários + 8 de arquitetura + 15 BDD = **108/108 passando**.
 3. **Pacotes**: nenhum precisou ser atualizado — todos já tinham builds compatíveis com .NET 10.
 
 ## Estratégia de upgrade futura

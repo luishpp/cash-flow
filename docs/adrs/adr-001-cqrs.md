@@ -28,6 +28,25 @@ O saldo consolidado (`DailyBalance`) é uma **projeção** derivada dos eventos 
 
 O Balance é uma consulta de saldo — não é uma transferência bancária entre contas. Um atraso de 2-3 segundos entre o registro do lançamento e a atualização do saldo consolidado não causa impacto operacional para o comerciante. Se fosse um sistema de pagamentos em tempo real, essa decisão seria diferente.
 
+## Read surface exposto pelo Balance.API
+
+O desafio pede **"relatório que disponibilize o saldo diário consolidado"** — sem prescrever shape específico de API. Mapeamos isso em dois endpoints, cobrindo as duas formas que o comerciante (Carlos) consulta o consolidado na jornada documentada em [`../analysis/analise-desafio-arquiteto.md`](../analysis/analise-desafio-arquiteto.md):
+
+| Endpoint | Retorna | Jornada coberta |
+| --- | --- | --- |
+| `GET /api/v1/balance/{date}` | Saldo consolidado de um dia (`BalanceResponse` — zerado se não houver movimento) | "Olhada rápida" e "Fechamento do dia" |
+| `GET /api/v1/balance?from=X&to=Y` | `BalancePeriodResponse`: totais agregados (`totalCredits`/`totalDebits`/`balance`) no topo + lista diária em `days[]` | "Histórico / preparação para contador" |
+
+### Por que o endpoint de período devolve totais no envelope (e não num `/summary` separado)
+
+O endpoint de período tem dois usos típicos — ver a lista detalhada e ver o total do intervalo. As alternativas avaliadas:
+
+- **Endpoint separado `/balance/summary`** — descartada: "summary" em cima de "Balance" (que já significa "Consolidado" no bounded context — ver [Mapeamento de termos](../analysis/analise-desafio-arquiteto.md)) duplica semântica. Pior, inventa um conceito ("consolidado de período") que o desafio não pede; o desafio fala em "saldo **diário** consolidado".
+- **Apenas o array, cliente soma** — descartada: cada cliente repete a soma; risco trivial de divergência.
+- **Envelope com totais no topo + `days[]` aninhado** ✅ — escolhida. O topo espelha o shape de `BalanceResponse` (`totalCredits`/`totalDebits`/`balance`), o que comunica "este é o mesmo objeto consolidado, em escala de período"; cliente pega o total em uma leitura.
+
+Agregação roda **em memória** sobre o resultado do `ListByPeriodAsync` — sem nova query SQL, sem duplicar lógica. Para os tamanhos de período esperados (semanas/meses), o overhead vs. um `SUM` no banco é desprezível e mantém uma única fonte de verdade da query.
+
 ## Alternativa descartada
 
 **Serviço único com consolidação síncrona** — simples de implementar, mas viola RNF-01: se a lógica de consolidação falhar, o lançamento falha junto.

@@ -1,0 +1,25 @@
+graph TD
+    Controllers["<b>Controllers</b>"]
+    Application["<b>Application</b>"]
+    Domain["<b>Domain</b>"]
+    Infrastructure["<b>Infrastructure</b>"]
+
+    Controllers --> Application
+    Application --> Domain
+    Infrastructure -.->|"implementa interfaces<br/>(repositories, publishers)"| Domain
+
+    Forbidden["❌ <b>Proibido:</b> Domain referenciar<br/>Application / Infrastructure /<br/>AspNetCore / Dapper"]
+
+    Domain -.- Forbidden
+
+    classDef layer fill:#42a5f5,stroke:#1565c0,color:#fff
+    classDef domain fill:#ef6c00,stroke:#b53d00,color:#fff
+    classDef infra fill:#26a69a,stroke:#00695c,color:#fff
+    classDef forbidden fill:#d32f2f,stroke:#9b0000,color:#fff,stroke-dasharray:5
+
+    class Controllers,Application layer
+    class Domain domain
+    class Infrastructure infra
+    class Forbidden forbidden
+
+    linkStyle 3 stroke:#d32f2f,stroke-width:1px,stroke-dasharray:3

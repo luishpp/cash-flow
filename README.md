@@ -30,29 +30,9 @@ O sistema é composto por **dois serviços independentes** que se comunicam de f
 
 A Transactions API **não depende** da Balance API. Se o consumer ou a Balance API caírem, os lançamentos continuam operando normalmente e as mensagens ficam na fila até serem processadas.
 
-```text
-              ┌─────────────────┐               ┌──────────────────────┐
-              │  Transactions   │               │      Balance         │
-              │     API :5001   │               │       API :5002      │
-              │   (write side)  │               │  + BackgroundService │
-              │   + /auth/login │               │  + RateLimiter 50/s  │
-              └───┬─────────┬───┘               └────┬────────────┬────┘
-                  │         │                        │            │
-                  │         ▼                        ▼            │
-                  │   ┌──────────┐         ┌────────────────┐     │
-                  │   │ RabbitMQ │────────▶│  consumer in   │     │
-                  │   │  :5672   │  AMQP   │  same process  │     │
-                  │   │  :15672  │         └────────────────┘     │
-                  │   └──────────┘                                │
-                  │                                               │
-                  ▼                                               ▼
-            ┌─────────────────────────────────────────────────────────┐
-            │             PostgreSQL :5432 — db: cashflow             │
-            │  schema: transactions         schema: balance           │
-            │  user: app_transactions       user: app_balance         │
-            │  (GRANT restrito)             (GRANT restrito)          │
-            └─────────────────────────────────────────────────────────┘
-```
+![Arquitetura — visão geral operacional](docs/diagrams/arquitetura-overview.png)
+
+> Fonte editável: [`docs/diagrams/arquitetura-overview.mmd`](docs/diagrams/arquitetura-overview.mmd)
 
 **Decisões-chave** (detalhes em [`docs/adrs/`](docs/adrs/) — 25 ADRs no total):
 
@@ -214,7 +194,7 @@ curl -X POST http://localhost:5001/api/v1/transactions \
 | Método | Rota | Descrição |
 |---|---|---|
 | `GET` | `/api/v1/balance/{date}` | Saldo consolidado de uma data específica |
-| `GET` | `/api/v1/balance?from={date}&to={date}` | Saldo consolidado por período |
+| `GET` | `/api/v1/balance?from={date}&to={date}` | Saldo consolidado por período — totais agregados no topo + detalhamento diário em `days[]` |
 | `GET` | `/api/v1/admin/errors/count` | Quantidade de mensagens na DLQ (`balance.transaction-registered_error`) |
 | `POST` | `/api/v1/admin/errors/redeliver?max={N}` | Move mensagens da DLQ de volta para a fila principal (reprocessamento) |
 
@@ -236,6 +216,31 @@ curl http://localhost:5002/api/v1/balance/2026-05-22 \
   "updatedAt": "2026-05-22T13:42:11+00:00"
 }
 ```
+
+**Exemplo — consultar período:**
+
+```bash
+curl "http://localhost:5002/api/v1/balance?from=2026-05-22&to=2026-05-25" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Resposta esperada:**
+
+```json
+{
+  "from": "2026-05-22",
+  "to": "2026-05-25",
+  "totalCredits": 2250.00,
+  "totalDebits": 136.50,
+  "balance": 2113.50,
+  "days": [
+    { "date": "2026-05-22", "totalCredits": 1200.00, "totalDebits": 136.50, "balance": 1063.50, "updatedAt": "2026-05-25T23:10:35+00:00" },
+    { "date": "2026-05-25", "totalCredits": 1050.00, "totalDebits": 0,      "balance": 1050.00, "updatedAt": "2026-05-25T23:10:35+00:00" }
+  ]
+}
+```
+
+> O topo (`totalCredits`/`totalDebits`/`balance`) espelha o shape de `/balance/{date}` — é o mesmo objeto consolidado em escala de período. `days[]` traz os mesmos campos por dia (só dias com movimento).
 
 ## Reliability — Outbox, retry e DLQ
 
@@ -274,7 +279,7 @@ dotnet test ./tests/CashFlow.Architecture.Tests
 # Inclui cenários E2E via WebApplicationFactory + Testcontainers Postgres → requer Docker.
 dotnet test ./tests/CashFlow.Bdd.Tests
 
-# Tudo de uma vez (108 testes: 85 unit + 8 architecture + 15 BDD)
+# Tudo de uma vez (114 testes: 91 unit + 8 architecture + 15 BDD)
 dotnet test
 ```
 
@@ -303,9 +308,9 @@ Mutation score ≥ 70% (configurado em `tests/CashFlow.UnitTests/stryker-config.
 Pipeline GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) dispara em `push: main` e `pull_request`:
 
 1. **Build** em configuração `Release` (.NET 10 SDK).
-2. **Unit tests** — 24 testes de domínio.
+2. **Unit tests** — 85 testes de domínio.
 3. **Architecture tests** — 8 fitness functions de Clean Architecture.
-4. **BDD tests** — 6 cenários Reqnroll pt-BR.
+4. **BDD tests** — 15 cenários Reqnroll pt-BR (domínio + E2E).
 5. **Upload** de TRX + cobertura como artifact (retenção 7 dias).
 
 Load test (NBomber) fica fora do CI automático por exigir stack completa — decisão documentada em [ADR-018](docs/adrs/adr-018-github-actions-ci.md).
@@ -344,7 +349,7 @@ Load test (NBomber) fica fora do CI automático por exigir stack completa — de
 | [`docs/analysis/analise-desafio-arquiteto.md`](docs/analysis/analise-desafio-arquiteto.md) | Análise completa: contexto, persona, jornada, decisões arquiteturais, padrões aplicados, estrutura, evoluções futuras |
 | [`docs/rnfs/`](docs/rnfs/) | **9 RNFs** em arquivos individuais (Disponibilidade, Carga, Escalabilidade, Resiliência, Segurança, Padrões, Integração, Manutenibilidade, Observabilidade) |
 | [`docs/adrs/`](docs/adrs/) | **25 ADRs** em arquivos individuais com contexto, trade-offs explícitos, alternativas descartadas e configurações concretas |
-| [`docs/diagrams/`](docs/diagrams/) | Diagramas C4 em Mermaid (Contexto, Containers, Componentes) — renderizam no GitHub |
+| [`docs/diagrams/`](docs/diagrams/) | Diagramas C4 (Contexto, Containers, Componentes) — fonte `.mmd` + PNG embedado em cada `.md` |
 | [`docs/challenge/`](docs/challenge/) | PDF original do desafio |
 | [`docs/references/`](docs/references/) | Material de estudo: dicionário arquitetural, RNFs→decisões, vaga, plano de preparação |
 
@@ -375,6 +380,7 @@ Load test (NBomber) fica fora do CI automático por exigir stack completa — de
 
 /infra
   /postgres/init.sql               → Criação de users + schemas + GRANTs
+  /rabbitmq/Dockerfile             → Imagem custom com plugin delayed-message-exchange (ADR-025)
 
 /docs                                Documentação arquitetural (25 ADRs + 9 RNFs)
 docker-compose.yml                   Orquestração de todos os serviços
@@ -393,7 +399,7 @@ A documentação registra evoluções priorizadas em [`docs/analysis/analise-des
 - **MFA (TOTP RFC 6238)** — próximo passo natural do stack de auth (Argon2id + lockout + refresh tokens já implementados).
 - **Cenário BDD cross-API** (Transactions → RabbitMQ → Balance) via Testcontainers RabbitMQ — evolução natural do [ADR-022](docs/adrs/adr-022-bdd-e2e-webapplicationfactory.md).
 - **OpenTelemetry completo** — distributed tracing propagado pelo broker (W3C TraceContext em headers AMQP) + Application Insights.
-- **Outbox Pattern** via MassTransit (`UseEntityFrameworkOutbox`) — elimina janela de inconsistência da [ADR-007](docs/adrs/adr-007-publish-after-commit.md).
+- ~~**Outbox Pattern**~~ — **já implementado** via outbox custom em Dapper ([ADR-025](docs/adrs/adr-025-outbox-and-dlq.md)). A versão `UseEntityFrameworkOutbox` do MassTransit foi descartada porque exigiria abandonar Dapper.
 - **Migração para Azure Service Bus** — trocar broker via configuração do MassTransit, sem mudar código de negócio.
 - **Cron noturno do Stryker** + `--since main` em PR — mutation testing sem clique manual e com custo viável em PR.
 - **Consumer em processo dedicado** (`CashFlow.Balance.Worker`) quando volume justificar.

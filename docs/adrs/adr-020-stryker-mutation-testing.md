@@ -6,7 +6,7 @@
 
 A vaga ([`../references/vaga-verx.md`](../references/vaga-verx.md)) lista *"testes de mutação"* entre os critérios — junto com unitário, integração e carga. Testes unitários **passando** dizem que o código funciona para os casos escritos; **mutação** mede o oposto: se os testes capturariam regressões reais.
 
-A solução já tem 24 testes unitários de domínio (`Transaction`, `Money`, `DailyBalance`, etc.). A pergunta é: **se alguém trocar `>` por `>=` em uma invariante, os testes pegariam?** Sem mutação, não há resposta empírica.
+A solução já tem 85 testes unitários de domínio (`Transaction`, `Money`, `DailyBalance`, `AppUser`, `RefreshToken`, etc.). A pergunta é: **se alguém trocar `>` por `>=` em uma invariante, os testes pegariam?** Sem mutação, não há resposta empírica.
 
 Duas ferramentas viáveis:
 

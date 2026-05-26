@@ -1,6 +1,7 @@
 using System.Threading.RateLimiting;
 using CashFlow.Balance.API.Application.Services;
 using CashFlow.Balance.API.Consumers;
+using CashFlow.Balance.API.Infrastructure.Configuration;
 using CashFlow.Balance.API.Infrastructure.Migrations;
 using CashFlow.Balance.API.Infrastructure.Persistence;
 using CashFlow.Balance.API.Infrastructure.Repositories;
@@ -60,21 +61,28 @@ builder.Services.AddCashFlowAuthentication(builder.Configuration, builder.Enviro
 builder.Services.AddCashFlowAuthorization();
 
 // ---------- Rate Limiting (ADR-006) ----------
+// Configurável via seção `RateLimiting:Balance` em appsettings (ou env vars
+// RateLimiting__Balance__PermitLimit etc.). Seção opcional — sem ela, defaults do
+// RateLimitSettings aplicam. Tweak sem rebuild: editar appsettings + restart.
+var rateLimitSettings = builder.Configuration
+    .GetSection(RateLimitSettings.SectionName)
+    .Get<RateLimitSettings>() ?? new RateLimitSettings();
+
 builder.Services.AddRateLimiter(options =>
 {
     options.AddFixedWindowLimiter("balance", opt =>
     {
-        opt.Window = TimeSpan.FromSeconds(1);
-        opt.PermitLimit = 50;
-        opt.QueueLimit = 5;
+        opt.Window = TimeSpan.FromSeconds(rateLimitSettings.WindowSeconds);
+        opt.PermitLimit = rateLimitSettings.PermitLimit;
+        opt.QueueLimit = rateLimitSettings.QueueLimit;
         opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
     });
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.OnRejected = async (ctx, ct) =>
     {
-        ctx.HttpContext.Response.Headers.RetryAfter = "1";
+        ctx.HttpContext.Response.Headers.RetryAfter = rateLimitSettings.RetryAfterSeconds;
         await ctx.HttpContext.Response.WriteAsync(
-            "Rate limit excedido. Tente novamente em 1 segundo.", ct);
+            $"Rate limit excedido. Tente novamente em {rateLimitSettings.RetryAfterSeconds} segundo(s).", ct);
     };
 });
 

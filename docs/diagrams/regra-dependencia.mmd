@@ -1,0 +1,20 @@
+graph TD
+    Controllers["<b>Controllers + Program.cs</b><br/><i>← entrada (HTTP)</i><br/>(ApiBehavior, Swagger, Middleware)"]
+    Application["<b>Application</b><br/><i>← orquestração</i><br/>(Services, DTOs, Validators)"]
+    Domain["<b>Domain</b><br/>(Entities, VOs, Exceptions)"]
+    Infrastructure["<b>Infrastructure</b><br/>(Repositories, UoW,<br/>MessageBus, Migrations)"]
+
+    Controllers -->|"usa"| Application
+    Application -->|"usa"| Domain
+    Application -->|"usa interfaces de"| Infrastructure
+    Infrastructure -.->|"implementa interfaces<br/>(Repository, Publisher)<br/>definidas pelo Domain"| Domain
+
+    classDef api fill:#42a5f5,stroke:#1565c0,color:#fff
+    classDef app fill:#7e57c2,stroke:#4527a0,color:#fff
+    classDef domain fill:#ef6c00,stroke:#b53d00,color:#fff
+    classDef infra fill:#26a69a,stroke:#00695c,color:#fff
+
+    class Controllers api
+    class Application app
+    class Domain domain
+    class Infrastructure infra

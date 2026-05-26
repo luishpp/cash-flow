@@ -140,6 +140,7 @@ if (!isTesting)
 // ---------- Pipeline ----------
 app.UseSwagger();
 app.UseSwaggerUI();
+
 app.UseSerilogRequestLogging();
 
 // Tradução de DomainException → HTTP 422

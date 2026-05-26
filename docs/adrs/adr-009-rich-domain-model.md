@@ -62,7 +62,7 @@ public sealed class Transaction : AuditableEntity
 | Invariantes garantidas no construtor → impossível criar entidade inválida | Mais código por entidade (factories, value objects) vs. POCO simples |
 | Application Services finos — orquestram, não validam regras de negócio | Curva: time precisa entender o padrão (vs. POCO trivial) |
 | Testabilidade alta — testes de domínio sem mocks de infraestrutura | Mapeamento Dapper exige construtor privado parameterless (resolvido por records de DTO + factory de reconstrução) |
-| Demonstra DDD tático, alinhado ao vocabulário da vaga (Verx) | — |
+| Demonstra DDD tático, alinhado ao vocabulário da vaga | — |
 | Validação centralizada na entidade — sem duplicação em DTOs e Controllers | — |
 
 ## Validação por Testes de Arquitetura (ver [ADR-012](adr-012-architecture-tests.md))

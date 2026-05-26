@@ -30,7 +30,8 @@ No volume do desafio (50 req/s), uma única instância de cada API é suficiente
 
 ## Verificação
 
-- Teste de carga progressivo (50, 100, 200 RPS) com `k6` — confirmar que a degradação é proporcional, não catastrófica.
+- **Hoje:** carga sustentada a 50 RPS por 60s validada empiricamente em [`tests/CashFlow.LoadTests`](../../tests/CashFlow.LoadTests/) com **NBomber** ([ADR-019](../adrs/adr-019-load-test-nbomber.md)) — cobre o teto do RNF-02. Rate-limiter parametrizável em `RateLimiting:Balance` permite ajustar `PermitLimit`/`QueueLimit` sem rebuild para sondar o efeito de pequenas variações.
+- **Evolução natural:** ramp progressivo (50 → 100 → 200 RPS) reaproveitando a mesma infra NBomber, com `Simulation.RampingInject` — confirmaria degradação proporcional vs. catastrófica. Não está no MVP porque RNF-03 é derivado, não explícito.
 - Observar a queue depth no RabbitMQ durante picos de escrita — deve drenar quando a carga cai.
 
 ## Evolução

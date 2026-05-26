@@ -23,8 +23,11 @@ public sealed class BalanceController(IBalanceQueryService service) : Controller
         return Ok(balance);
     }
 
+    /// <summary>
+    /// Saldo consolidado do intervalo [from, to]: totais agregados no topo + detalhamento diário em <c>days</c>.
+    /// </summary>
     [HttpGet]
-    [ProducesResponseType(typeof(IReadOnlyList<BalanceResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(BalancePeriodResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> ListByPeriod(
         [FromQuery] DateOnly from, [FromQuery] DateOnly to, CancellationToken ct)

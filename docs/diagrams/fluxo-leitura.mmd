@@ -1,0 +1,25 @@
+sequenceDiagram
+    autonumber
+    actor Client as Cliente HTTP
+    participant RL as RateLimiter<br/>FixedWindow: 50 req/s + queue 5
+    participant Ctrl as BalanceController
+    participant Svc as BalanceQueryService
+    participant UoW as IUnitOfWork
+    participant Repo as IBalanceRepository
+    participant DB as PostgreSQL<br/>balance.daily_balance
+
+    Client->>RL: GET /api/v1/balance/{date}<br/>(HTTPS/JSON)
+    alt Limite excedido
+        RL-->>Client: 429 Too Many Requests<br/>(com Retry-After)
+    else Dentro do limite
+        RL->>Ctrl: GetByDate(date)
+        Ctrl->>Svc: GetByDateAsync(date)
+        Svc->>UoW: BeginAsync()
+        Svc->>Repo: GetByDateAsync(date)
+        Repo->>DB: SELECT * FROM balance.daily_balance<br/>WHERE date = @date
+        Note over DB: O(1) — projeção pré-calculada
+        DB-->>Repo: row
+        Repo-->>Svc: DailyBalance
+        Svc-->>Ctrl: BalanceResponse<br/>(totalCredits, totalDebits, balance, updatedAt)
+        Ctrl-->>Client: 200 OK + JSON
+    end

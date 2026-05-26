@@ -1,0 +1,49 @@
+sequenceDiagram
+    autonumber
+    actor Client as Cliente HTTP
+    participant Ctrl as TransactionsController
+    participant Val as RegisterTransactionValidator<br/>[FluentValidation]
+    participant Svc as TransactionService<br/>(Application Service — ADR-015)
+    participant Dom as Transaction<br/>(Rich Domain)
+    participant UoW as IUnitOfWork
+    participant Repo as ITransactionRepository
+    participant Outbox as IOutboxRepository<br/>(ADR-025)
+
+    Client->>Ctrl: POST /api/v1/transactions<br/>body = [{...}, {...}, ...]<br/>(HTTPS/JSON, sempre array)
+
+    Note over Ctrl,Val: Validation manual item-a-item<br/>(param é List<T>, não dispara auto-validation)
+    loop for each request in array
+        Ctrl->>Val: ValidateAsync(request[i])
+    end
+
+    alt qualquer item inválido
+        Val-->>Ctrl: ValidationResult.Errors<br/>(keyed por [i].PropertyName)
+        Ctrl-->>Client: 400 Bad Request<br/>ValidationProblemDetails
+    else todos válidos
+        Ctrl->>Svc: RegisterManyAsync(requests)
+
+        loop for each request
+            Svc->>Dom: Transaction.Register(amount, type, ...)
+            Note over Dom: Money.From(amount)<br/>MovementDate.From(date)<br/>valida invariantes
+        end
+
+        alt DomainException em algum item
+            Dom-->>Svc: throw DomainException
+            Svc-->>Ctrl: throw (nada persistido ainda)
+            Ctrl-->>Client: 422 Unprocessable Entity
+        else todos os Transaction criados
+            Svc->>UoW: BeginAsync()
+
+            loop for each transaction (mesma UoW)
+                Svc->>Repo: InsertAsync(transaction)
+                Svc->>Outbox: EnqueueAsync(EventId, "TransactionRegistered", JSON payload)
+                Note over Svc,Outbox: INSERT transação + outbox<br/>na MESMA tx — atomicidade<br/>fecha janela do ADR-007
+            end
+
+            Svc->>UoW: CommitAsync()
+            Svc-->>Ctrl: IReadOnlyList<TransactionResponse>
+            Ctrl-->>Client: 201 Created<br/>(array de responses na mesma ordem)
+        end
+    end
+
+    Note over Outbox: Publicação assíncrona pelo<br/>OutboxDispatcher BackgroundService —<br/>ver "fluxo-outbox-dispatch.mmd"

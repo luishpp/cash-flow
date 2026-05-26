@@ -1,0 +1,31 @@
+graph TB
+    %% Top row — APIs
+    TransactionsAPI["📦 <b>Transactions API :5001</b><br/><i>Write side</i><br/>+ POST /api/v1/auth/login"]
+    BalanceAPI["📊 <b>Balance API :5002</b><br/><i>Read side</i><br/>+ BackgroundService<br/>+ RateLimiter 50 req/s"]
+
+    %% Middle row — broker + consumer callout
+    RabbitMQ["📮 <b>RabbitMQ</b><br/>AMQP :5672<br/>Management :15672"]
+    ConsumerCallout["🔄 <i>consumer<br/>in same process<br/>(dentro da Balance API)</i>"]
+
+    %% Bottom — single Postgres com 2 schemas
+    Postgres["🗄️ <b>PostgreSQL :5432</b><br/>db: <b>cashflow</b><br/>—————————————<br/><b>schema: transactions</b><br/>user: app_transactions<br/>(GRANT restrito)<br/>—————————————<br/><b>schema: balance</b><br/>user: app_balance<br/>(GRANT restrito)"]
+
+    %% Flows
+    TransactionsAPI -->|"publish<br/>TransactionRegistered"| RabbitMQ
+    RabbitMQ -->|"AMQP<br/>(at-least-once)"| ConsumerCallout
+    ConsumerCallout -.-> BalanceAPI
+
+    TransactionsAPI -->|"INSERT transactions<br/>(Dapper)"| Postgres
+    BalanceAPI -->|"UPSERT daily_balance<br/>SELECT projeção<br/>(Dapper)"| Postgres
+
+    classDef writeApi fill:#1168bd,stroke:#0b4884,color:#fff
+    classDef readApi fill:#2e7d32,stroke:#1b5e20,color:#fff
+    classDef broker fill:#f57c00,stroke:#bf5f00,color:#fff
+    classDef callout fill:#ec407a,stroke:#ad1457,color:#fff,stroke-dasharray:5
+    classDef db fill:#6a1b9a,stroke:#4a148c,color:#fff
+
+    class TransactionsAPI writeApi
+    class BalanceAPI readApi
+    class RabbitMQ broker
+    class ConsumerCallout callout
+    class Postgres db

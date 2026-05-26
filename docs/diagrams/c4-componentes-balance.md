@@ -2,75 +2,9 @@
 
 **Pergunta que responde:** Quais componentes internos formam a `CashFlow.Balance.API`, incluindo o `BackgroundService` consumer que mantém a projeção atualizada?
 
-```mermaid
-graph TB
-    Cliente["👤 <b>Cliente HTTP</b>"]
-    Rabbit["📮 <b>RabbitMQ</b>"]
+![Diagrama de Componentes — Balance API + Consumer](c4-componentes-balance.png)
 
-    subgraph BalanceAPI["📊 Balance API [ASP.NET Core 10]"]
-
-        subgraph LayerAPI["Camada API (Read endpoints)"]
-            Controller["<b>BalanceController</b><br/><i>GET /api/v1/balance/{date}<br/>GET /api/v1/balance?from=&to=</i>"]
-            RateLimit["<b>RateLimiter</b><br/>[Microsoft.AspNetCore.RateLimiting]<br/><i>FixedWindow: 50 req/s + queue 5<br/>HTTP 429 + Retry-After</i>"]
-            HealthCheck["<b>HealthChecks</b><br/>/health/live<br/>/health/ready (sem consumer)"]
-        end
-
-        subgraph LayerConsumer["Camada Consumer (BackgroundService)"]
-            Consumer["<b>TransactionConsumer</b><br/>[MassTransit IConsumer]<br/><i>Hospedado como BackgroundService<br/>dentro do processo desta API.<br/>Queue: balance.transaction-registered</i>"]
-            Polly["<b>ResiliencePipeline</b><br/>[Polly v8]<br/><i>Retry 3x exponential backoff<br/>+ jitter</i>"]
-        end
-
-        subgraph LayerApp["Camada Application"]
-            QueryService["<b>BalanceQueryService</b><br/><i>Resolve queries de saldo<br/>por data ou range</i>"]
-            ConsolidationService["<b>ConsolidationService</b><br/><i>Aplica delta no DailyBalance:<br/>verifica idempotência, calcula<br/>novo saldo, persiste atomicamente</i>"]
-        end
-
-        subgraph LayerDomain["Camada Domain"]
-            DailyBalance["<b>DailyBalance</b> (Entity)<br/><i>balance.ApplyCredit(amount)<br/>balance.ApplyDebit(amount)<br/>— atualiza totais respeitando<br/>invariantes</i>"]
-        end
-
-        subgraph LayerInfra["Camada Infrastructure"]
-            BalanceRepo["<b>BalanceRepository</b><br/>[Dapper]<br/><i>UPSERT daily_balance</i>"]
-            EventsRepo["<b>ProcessedEventsRepository</b><br/>[Dapper]<br/><i>ExistsAsync(EventId)<br/>RegisterAsync(EventId)</i>"]
-            ConnFactory["<b>NpgsqlConnectionFactory</b><br/><i>user: app_balance</i>"]
-            DbUp["<b>DbUp Migrator</b>"]
-        end
-    end
-
-    Postgres["🗄️ <b>PostgreSQL</b><br/>schema: balance<br/>(daily_balance,<br/>processed_events)"]
-
-    Cliente -->|"HTTPS/JSON<br/>(passa por rate limiter)"| RateLimit
-    RateLimit --> Controller
-    Controller -->|"queries"| QueryService
-    QueryService -->|"SELECT daily_balance"| BalanceRepo
-    BalanceRepo --> ConnFactory --> Postgres
-
-    Rabbit -->|"AMQP / TransactionRegistered<br/>(at-least-once)"| Consumer
-    Consumer -->|"protege com"| Polly
-    Polly -->|"executa handler"| ConsolidationService
-    ConsolidationService -->|"abre transação"| ConnFactory
-    ConsolidationService -->|"ExistsAsync(EventId)"| EventsRepo
-    ConsolidationService -->|"ApplyCredit/ApplyDebit"| DailyBalance
-    ConsolidationService -->|"UPSERT"| BalanceRepo
-    ConsolidationService -->|"RegisterAsync(EventId)"| EventsRepo
-
-    DbUp -.->|"startup"| Postgres
-    HealthCheck -.->|"verifica"| Postgres
-
-    classDef api fill:#42a5f5,stroke:#1565c0,color:#fff
-    classDef consumer fill:#ec407a,stroke:#ad1457,color:#fff
-    classDef app fill:#7e57c2,stroke:#4527a0,color:#fff
-    classDef domain fill:#ef6c00,stroke:#b53d00,color:#fff
-    classDef infra fill:#26a69a,stroke:#00695c,color:#fff
-    classDef external fill:#9e9e9e,stroke:#616161,color:#fff
-
-    class Controller,RateLimit,HealthCheck api
-    class Consumer,Polly consumer
-    class QueryService,ConsolidationService app
-    class DailyBalance domain
-    class BalanceRepo,EventsRepo,ConnFactory,DbUp infra
-    class Cliente,Rabbit,Postgres external
-```
+> 📊 Fonte editável em [`c4-componentes-balance.mmd`](c4-componentes-balance.mmd). Após editar, re-gere o PNG: `mmdc -i c4-componentes-balance.mmd -o c4-componentes-balance.png`.
 
 ## Fluxo de "Aplicar Transaction ao DailyBalance" (consumer)
 
@@ -122,22 +56,23 @@ CREATE INDEX idx_processed_events_at ON balance.processed_events (processed_at);
 ```text
 CashFlow.Balance.API/
 ├── Controllers/
-│   └── BalanceController.cs
+│   ├── BalanceController.cs
+│   └── AdminController.cs                    ← ADR-025 (DLQ count + redeliver)
 ├── Consumers/
 │   └── TransactionConsumer.cs
 ├── Domain/
 │   ├── Entities/DailyBalance.cs
 │   └── Exceptions/DomainException.cs
 ├── Application/
+│   ├── Admin/ErrorQueueRedeliveryService.cs  ← ADR-025 (move da DLQ)
 │   ├── Services/{IBalanceQueryService, BalanceQueryService}.cs
 │   ├── Services/{IConsolidationService, ConsolidationService}.cs
 │   └── DTOs/BalanceResponse.cs
 ├── Infrastructure/
-│   ├── Persistence/{NpgsqlConnectionFactory, DapperUnitOfWork}.cs
-│   ├── Repositories/{IBalanceRepository, BalanceRepository}.cs
-│   ├── Repositories/{IProcessedEventsRepository, ProcessedEventsRepository}.cs
+│   ├── Persistence/{NpgsqlConnectionFactory, DapperUnitOfWork, DateOnlyTypeHandler}.cs
+│   ├── Repositories/{BalanceRepository, ProcessedEventsRepository}.cs
 │   └── Migrations/
 │       ├── MigrationRunner.cs
-│       └── Scripts/{001_create_schema, 002_create_daily_balance, 003_create_processed_events}.sql
-└── Program.cs
+│       └── Scripts/{002_create_daily_balance, 003_create_processed_events}.sql
+└── Program.cs                                ← + UseDelayedRedelivery + SAC (ADR-025)
 ```

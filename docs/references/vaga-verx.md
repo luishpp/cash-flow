@@ -1,4 +1,4 @@
-# Vaga: Arquiteto de Software - Verx
+# Vaga: Arquiteto de Software
 
 ## Requisitos
 
