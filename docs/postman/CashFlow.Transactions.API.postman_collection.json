@@ -187,7 +187,7 @@
                         ],
                         "body": {
                           "mode": "raw",
-                          "raw": "{\n  \"refreshToken\": \"X3NfIIYB6bsZotGCNYiU-wStGrzXhCbudCvnLOv8aSs\"\n}",
+                          "raw": "{\n  \"refreshToken\": \"hlN57QHKIPYDzKC59DQ0UynulE_7Oqx05-xBWbyB0gY\"\n}",
                           "options": {
                             "raw": {
                               "headerFamily": "json",
@@ -439,7 +439,7 @@
                           "variable": [
                             {
                               "key": "id",
-                              "value": "000f96a2-7598-71d0-210d-6666d914c595"
+                              "value": "21c04e15-bce8-4dc1-a89d-a15533afaafb"
                             }
                           ]
                         }
@@ -557,7 +557,7 @@
                     ],
                     "body": {
                       "mode": "raw",
-                      "raw": "[\n    {\n        \"type\": \"credit\",\n        \"amount\": 150.00,\n        \"description\": \"Venda do dia\",\n        \"movementDate\": \"2026-05-25\"\n    }\n]",
+                      "raw": "[\n    {\n        \"type\": \"credit\",\n        \"amount\": 150.00,\n        \"description\": \"Venda do dia\",\n        \"movementDate\": \"2026-05-25\"\n    },\n    {\n        \"type\": \"debit\",\n        \"amount\": 45.50,\n        \"description\": \"Compra de estoque\",\n        \"movementDate\": \"2026-05-25\"\n    }\n]",
                       "options": {
                         "raw": {
                           "headerFamily": "json",
@@ -750,7 +750,7 @@
                       }
                     ],
                     "url": {
-                      "raw": "{{baseUrl}}/api/v1/Transactions?date=2026-05-25",
+                      "raw": "{{baseUrl}}/api/v1/Transactions?date=2026-05-26",
                       "host": [
                         "{{baseUrl}}"
                       ],
@@ -762,7 +762,7 @@
                       "query": [
                         {
                           "key": "date",
-                          "value": "2026-05-25"
+                          "value": "2026-05-26"
                         }
                       ]
                     }

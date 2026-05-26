@@ -91,6 +91,47 @@ docker compose down
 docker compose down -v
 ```
 
+### Opcional: pgAdmin (UI para inspecionar o Postgres)
+
+O `docker-compose.yml` traz um serviço `pgadmin` **comentado** (linhas 27-38). Inspecionar `transactions.app_users` (hashes Argon2id), `transactions.refresh_tokens` (rotação) ou `balance.daily_balance` (projeção) em UI gráfica é útil em demo.
+
+**Passo a passo:**
+
+1. Edite `docker-compose.yml` e **descomente** o bloco `pgadmin:` (remova o `#` das linhas 27-38).
+2. Suba/reinicie:
+
+   ```bash
+   docker compose up -d pgadmin
+   ```
+
+3. Abra <http://localhost:5050> e faça login com:
+
+   | Campo | Valor |
+   |---|---|
+   | Email | `admin@cashflow.com` |
+   | Password | `admin` |
+
+4. Cadastre o servidor Postgres dentro do pgAdmin (**Add New Server**). Campos comuns às três opções abaixo:
+
+   - **General → Name**: `cashflow` (ou outro nome livre)
+   - **Connection → Host name/address**: `postgres` (nome do container na rede compose, **não** `localhost`)
+   - **Connection → Port**: `5432`
+   - **Connection → Maintenance database**: `cashflow`
+
+   **Escolha as credenciais conforme o objetivo:**
+
+   | Usuário | Senha | Vê | Quando usar |
+   |---|---|---|---|
+   | `postgres` | `postgres` | Tudo (superuser) — schemas `transactions`, `balance`, `pg_catalog` etc. | Default. Exploração geral, debug rápido. |
+   | `app_transactions` | `transactions_pwd` | Apenas schema `transactions` (`transactions`, `app_users`, `refresh_tokens`, `outbox_events`, ...) | Visão exata do que a Transactions API enxerga — **valida o GRANT restrito do [ADR-003](docs/adrs/adr-003-postgres-schemas.md)**. |
+   | `app_balance` | `balance_pwd` | Apenas schema `balance` (`daily_balance`, `processed_events`) | Visão exata do que a Balance API enxerga. Tentar `SELECT` em `transactions.*` retorna `permission denied`. |
+
+   > 💡 Você pode cadastrar os três como servidores separados na mesma instância de pgAdmin (ex.: `cashflow (admin)`, `cashflow (transactions)`, `cashflow (balance)`) — ótimo para demonstrar visualmente o **princípio do menor privilégio** ([RNF-05 § Segurança](docs/rnfs/rnf-05-seguranca.md)).
+
+5. Navegue até **Servers → cashflow → Databases → cashflow → Schemas** — você verá os schemas que aquele usuário tem permissão de enxergar.
+
+> ⚠️ pgAdmin **não é parte do MVP** — só sobe quando descomentado, e nunca é exigido pelos testes/CI. Use para exploração visual; tudo que pgAdmin mostra também é acessível via `psql` ou `docker exec -it cashflow-postgres psql -U postgres -d cashflow`.
+
 ## Autenticação (JWT Bearer)
 
 Ambos os APIs exigem token JWT. Faça login na Transactions API e use o mesmo token nas duas APIs (mesma chave/audience — [ADR-016](docs/adrs/adr-016-jwt-authentication.md)).
@@ -356,39 +397,47 @@ Load test (NBomber) fica fora do CI automático por exigir stack completa — de
 ## Estrutura do projeto
 
 ```text
-/src
-  /CashFlow.Transactions.API    → Write side
-                                   (Domain/, Application/, Infrastructure/,
-                                    Controllers/, Infrastructure/Migrations/)
-  /CashFlow.Balance.API         → Read side + BackgroundService consumer
-                                   (Domain/, Application/, Infrastructure/,
-                                    Controllers/, Consumers/, Migrations/)
-  /CashFlow.Shared              → Contratos de eventos + Security (JWT/Policies)
-
-/tests
-  /CashFlow.UnitTests              → Domínio (Transaction, Money, DailyBalance, AppUser, ...)
-  /CashFlow.Architecture.Tests     → Fitness functions (NetArchTest)
-  /CashFlow.Bdd.Tests              → Reqnroll pt-BR: domínio + E2E (WebApplicationFactory + Testcontainers)
-  /CashFlow.LoadTests              → NBomber — validação empírica do RNF-02
-
-/.github/workflows
-  ci.yml                           → CI: build + 3 suítes de teste (PR/push)
-  mutation.yml                     → Stryker.NET (workflow_dispatch manual)
-
-/.config
-  dotnet-tools.json                → Local tools (Stryker)
-
-/infra
-  /postgres/init.sql               → Criação de users + schemas + GRANTs
-  /rabbitmq/Dockerfile             → Imagem custom com plugin delayed-message-exchange (ADR-025)
-
-/docs                                Documentação arquitetural (25 ADRs + 9 RNFs)
-docker-compose.yml                   Orquestração de todos os serviços
-CashFlow.sln                         Solution file
-README.md                            Este arquivo
+cash-flow/
+├── src/
+│   ├── CashFlow.Transactions.API/        # Write side (CQRS) + /api/v1/auth/*
+│   │   ├── Domain/                       #   Entities, ValueObjects, Exceptions  (sem deps de infra)
+│   │   ├── Application/                  #   Services, DTOs, Validators, Auth (Argon2id + JWT)
+│   │   ├── Infrastructure/               #   Dapper repos, MassTransit, DbUp migrations, seeders
+│   │   └── Controllers/                  #   TransactionsController, AuthController
+│   │
+│   ├── CashFlow.Balance.API/             # Read side + TransactionConsumer (BackgroundService)
+│   │   ├── Domain/
+│   │   ├── Application/
+│   │   ├── Infrastructure/
+│   │   ├── Consumers/                    #   TransactionConsumer (MassTransit)
+│   │   └── Controllers/                  #   BalanceController, AdminErrorsController
+│   │
+│   └── CashFlow.Shared/                  # Contratos de evento + Security (JWT/Policies/Roles)
+│
+├── tests/
+│   ├── CashFlow.UnitTests/               # Domínio: Transaction, Money, DailyBalance, AppUser, RefreshToken
+│   ├── CashFlow.Architecture.Tests/      # Fitness functions (NetArchTest)
+│   ├── CashFlow.Bdd.Tests/               # Reqnroll pt-BR: domínio + E2E (WebApplicationFactory + Testcontainers)
+│   └── CashFlow.LoadTests/               # NBomber — validação empírica do RNF-02
+│
+├── infra/
+│   ├── postgres/init.sql                 # Users app_transactions/app_balance + schemas + GRANTs (ADR-003)
+│   └── rabbitmq/Dockerfile               # Imagem custom com plugin delayed-message-exchange (ADR-025)
+│
+├── .github/workflows/
+│   ├── ci.yml                            # Build + 3 suítes de teste em PR/push (ADR-018)
+│   └── mutation.yml                      # Stryker.NET — workflow_dispatch manual (ADR-020)
+│
+├── .config/
+│   └── dotnet-tools.json                 # Local tools (Stryker)
+│
+├── docs/                                 # 25 ADRs + 9 RNFs + diagramas C4 + análise
+├── docker-compose.yml                    # Orquestra Postgres + RabbitMQ + 2 APIs
+├── CashFlow.sln
+└── README.md                             # Este arquivo
 ```
 
-**3 projetos de produção + 4 de teste/carga.** Separação por pastas internas (`Domain/`, `Application/`, `Infrastructure/`) dentro de cada API demonstra Clean Architecture sem cerimônia de 11 projetos para um domínio com 2 entidades.
+**3 projetos de produção + 4 de teste/carga.** Separação por pastas internas (`Domain/`, `Application/`, `Infrastructure/`) dentro de cada API demonstra Clean Architecture sem cerimônia de 11 projetos para um domínio com 2 entidades — a regra de dependência (Domain → Application → Infrastructure → Controllers) é verificada por fitness functions em `CashFlow.Architecture.Tests` ([ADR-012](docs/adrs/adr-012-architecture-tests.md)).
 
 ## Evoluções naturais (não-MVP)
 

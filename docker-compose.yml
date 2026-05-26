@@ -23,6 +23,20 @@ services:
     networks:
       - cashflow-net
 
+  # Optional UI for Postgres (uncomment to use)
+  # pgadmin:
+  #   image: dpage/pgadmin4:latest
+  #   container_name: cashflow-pgadmin
+  #   environment:
+  #     PGADMIN_DEFAULT_EMAIL: admin@cashflow.com
+  #     PGADMIN_DEFAULT_PASSWORD: admin
+  #   ports:
+  #     - "5050:80"
+  #   depends_on:
+  #     - postgres
+  #   networks:
+  #     - cashflow-net      
+
   rabbitmq:
     build:
       context: ./infra/rabbitmq
