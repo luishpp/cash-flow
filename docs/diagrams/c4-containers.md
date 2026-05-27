@@ -2,9 +2,9 @@
 
 **Pergunta que responde:** Quais aplicações/serviços/databases compõem o sistema CashFlow, e como se comunicam?
 
-![Diagrama de Containers](c4-containers.png)
+![Diagrama de Containers](c4-containers.svg)
 
-> 📊 Fonte editável em [`c4-containers.mmd`](c4-containers.mmd). Após editar, re-gere o PNG: `mmdc -i c4-containers.mmd -o c4-containers.png`.
+> 📊 Fonte editável em [`c4-containers.mmd`](c4-containers.mmd). Após editar, re-gere o SVG: `mmdc -i c4-containers.mmd -o c4-containers.svg`.
 
 ## Decisões refletidas neste diagrama
 

@@ -30,7 +30,7 @@ O sistema é composto por **dois serviços independentes** que se comunicam de f
 
 A Transactions API **não depende** da Balance API. Se o consumer ou a Balance API caírem, os lançamentos continuam operando normalmente e as mensagens ficam na fila até serem processadas.
 
-![Arquitetura — visão geral operacional](docs/diagrams/arquitetura-overview.png)
+![Arquitetura — visão geral operacional](docs/diagrams/arquitetura-overview.svg)
 
 > Fonte editável: [`docs/diagrams/arquitetura-overview.mmd`](docs/diagrams/arquitetura-overview.mmd)
 
@@ -390,7 +390,7 @@ Load test (NBomber) fica fora do CI automático por exigir stack completa — de
 | [`docs/analysis/analise-desafio-arquiteto.md`](docs/analysis/analise-desafio-arquiteto.md) | Análise completa: contexto, persona, jornada, decisões arquiteturais, padrões aplicados, estrutura, evoluções futuras |
 | [`docs/rnfs/`](docs/rnfs/) | **9 RNFs** em arquivos individuais (Disponibilidade, Carga, Escalabilidade, Resiliência, Segurança, Padrões, Integração, Manutenibilidade, Observabilidade) |
 | [`docs/adrs/`](docs/adrs/) | **25 ADRs** em arquivos individuais com contexto, trade-offs explícitos, alternativas descartadas e configurações concretas |
-| [`docs/diagrams/`](docs/diagrams/) | Diagramas C4 (Contexto, Containers, Componentes) — fonte `.mmd` + PNG embedado em cada `.md` |
+| [`docs/diagrams/`](docs/diagrams/) | Diagramas C4 (Contexto, Containers, Componentes) — fonte `.mmd` + SVG embedado em cada `.md` |
 | [`docs/challenge/`](docs/challenge/) | PDF original do desafio |
 | [`docs/references/`](docs/references/) | Material de estudo: dicionário arquitetural, RNFs→decisões, vaga, plano de preparação |
 

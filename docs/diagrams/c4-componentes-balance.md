@@ -2,9 +2,9 @@
 
 **Pergunta que responde:** Quais componentes internos formam a `CashFlow.Balance.API`, incluindo o `BackgroundService` consumer que mantém a projeção atualizada?
 
-![Diagrama de Componentes — Balance API + Consumer](c4-componentes-balance.png)
+![Diagrama de Componentes — Balance API + Consumer](c4-componentes-balance.svg)
 
-> 📊 Fonte editável em [`c4-componentes-balance.mmd`](c4-componentes-balance.mmd). Após editar, re-gere o PNG: `mmdc -i c4-componentes-balance.mmd -o c4-componentes-balance.png`.
+> 📊 Fonte editável em [`c4-componentes-balance.mmd`](c4-componentes-balance.mmd). Após editar, re-gere o SVG: `mmdc -i c4-componentes-balance.mmd -o c4-componentes-balance.svg`.
 
 ## Fluxo de "Aplicar Transaction ao DailyBalance" (consumer)
 

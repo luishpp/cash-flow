@@ -2,9 +2,9 @@
 
 **Pergunta que responde:** Quem usa o sistema Fluxo de Caixa e com quais sistemas externos ele conversa?
 
-![Diagrama de Contexto](c4-contexto.png)
+![Diagrama de Contexto](c4-contexto.svg)
 
-> 📊 Fonte editável em [`c4-contexto.mmd`](c4-contexto.mmd). Após editar, re-gere o PNG: `mmdc -i c4-contexto.mmd -o c4-contexto.png`.
+> 📊 Fonte editável em [`c4-contexto.mmd`](c4-contexto.mmd). Após editar, re-gere o SVG: `mmdc -i c4-contexto.mmd -o c4-contexto.svg`.
 
 ## O que esse diagrama comunica
 

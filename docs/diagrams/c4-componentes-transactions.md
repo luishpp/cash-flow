@@ -2,9 +2,9 @@
 
 **Pergunta que responde:** Quais componentes internos formam a `CashFlow.Transactions.API`, e como o fluxo de registro de uma transação atravessa as camadas?
 
-![Diagrama de Componentes — Transactions API](c4-componentes-transactions.png)
+![Diagrama de Componentes — Transactions API](c4-componentes-transactions.svg)
 
-> 📊 Fonte editável em [`c4-componentes-transactions.mmd`](c4-componentes-transactions.mmd). Após editar, re-gere o PNG: `mmdc -i c4-componentes-transactions.mmd -o c4-componentes-transactions.png`.
+> 📊 Fonte editável em [`c4-componentes-transactions.mmd`](c4-componentes-transactions.mmd). Após editar, re-gere o SVG: `mmdc -i c4-componentes-transactions.mmd -o c4-componentes-transactions.svg`.
 
 ## Fluxo de "Registrar Transaction" (golden path)
 
