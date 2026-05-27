@@ -1,13 +1,13 @@
 # Diagramas C4 — CashFlow
 
-Notação [C4 Model](https://c4model.com/) (Simon Brown) — quatro níveis de zoom progressivo. Cada nível tem **três arquivos**: a página `.md` com contexto, decisões e fluxos textuais; o `.mmd` com a fonte Mermaid (única fonte de verdade — editar aqui); e o `.png` pré-renderizado (visualizável em qualquer markdown viewer, embedado nas páginas `.md`).
+Notação [C4 Model](https://c4model.com/) (Simon Brown) — quatro níveis de zoom progressivo. Cada nível tem **três arquivos**: a página `.md` com contexto, decisões e fluxos textuais; o `.mmd` com a fonte Mermaid (única fonte de verdade — editar aqui); e o `.svg` pré-renderizado (visualizável em qualquer markdown viewer, embedado nas páginas `.md`).
 
-| Nível | Página | Fonte Mermaid | PNG | Pergunta que responde |
+| Nível | Página | Fonte Mermaid | SVG | Pergunta que responde |
 | --- | --- | --- | --- | --- |
-| 1. Contexto | [`c4-contexto.md`](c4-contexto.md) | [`c4-contexto.mmd`](c4-contexto.mmd) | [`c4-contexto.png`](c4-contexto.png) | Quem usa o sistema e com quais sistemas externos ele conversa? |
-| 2. Containers | [`c4-containers.md`](c4-containers.md) | [`c4-containers.mmd`](c4-containers.mmd) | [`c4-containers.png`](c4-containers.png) | Quais aplicações/serviços/databases compõem o sistema e como se comunicam? |
-| 3. Componentes (Transactions API) | [`c4-componentes-transactions.md`](c4-componentes-transactions.md) | [`c4-componentes-transactions.mmd`](c4-componentes-transactions.mmd) | [`c4-componentes-transactions.png`](c4-componentes-transactions.png) | Quais componentes internos formam a Transactions API? |
-| 3. Componentes (Balance API) | [`c4-componentes-balance.md`](c4-componentes-balance.md) | [`c4-componentes-balance.mmd`](c4-componentes-balance.mmd) | [`c4-componentes-balance.png`](c4-componentes-balance.png) | Quais componentes internos formam a Balance API + Consumer? |
+| 1. Contexto | [`c4-contexto.md`](c4-contexto.md) | [`c4-contexto.mmd`](c4-contexto.mmd) | [`c4-contexto.svg`](c4-contexto.svg) | Quem usa o sistema e com quais sistemas externos ele conversa? |
+| 2. Containers | [`c4-containers.md`](c4-containers.md) | [`c4-containers.mmd`](c4-containers.mmd) | [`c4-containers.svg`](c4-containers.svg) | Quais aplicações/serviços/databases compõem o sistema e como se comunicam? |
+| 3. Componentes (Transactions API) | [`c4-componentes-transactions.md`](c4-componentes-transactions.md) | [`c4-componentes-transactions.mmd`](c4-componentes-transactions.mmd) | [`c4-componentes-transactions.svg`](c4-componentes-transactions.svg) | Quais componentes internos formam a Transactions API? |
+| 3. Componentes (Balance API) | [`c4-componentes-balance.md`](c4-componentes-balance.md) | [`c4-componentes-balance.mmd`](c4-componentes-balance.mmd) | [`c4-componentes-balance.svg`](c4-componentes-balance.svg) | Quais componentes internos formam a Balance API + Consumer? |
 
 **Nível 4 (código)** não é incluído — a abertura natural para o nível 4 é o próprio código-fonte em `src/`. C4 explicitamente desencoraja diagramas de classes/sequence neste nível porque envelhecem rapidamente.
 
@@ -15,12 +15,12 @@ Notação [C4 Model](https://c4model.com/) (Simon Brown) — quatro níveis de z
 
 ## Visualização
 
-Para apenas **ver**: os `.png` estão embedados nas páginas `.md` correspondentes — abra qualquer uma e a imagem aparece. Nenhuma ferramenta extra necessária.
+Para apenas **ver**: os `.svg` estão embedados nas páginas `.md` correspondentes — abra qualquer uma e a imagem aparece. Nenhuma ferramenta extra necessária.
 
 Para **editar** o diagrama:
 
 1. Modifique o `.mmd` (única fonte de verdade).
-2. Re-gere o `.png`: `mmdc -i c4-XXX.mmd -o c4-XXX.png` (Mermaid CLI: `npm i -g @mermaid-js/mermaid-cli`).
+2. Re-gere o `.svg`: `mmdc -i c4-XXX.mmd -o c4-XXX.svg` (Mermaid CLI: `npm i -g @mermaid-js/mermaid-cli`).
 3. Alternativas pra preview rápido sem CLI: cole o `.mmd` em [Mermaid Live Editor](https://mermaid.live/), ou abra-o no VS Code com a extensão **Markdown Preview Mermaid Support**.
 
 ## Convenções nos diagramas
@@ -32,4 +32,4 @@ Para **editar** o diagrama:
 
 ## Regra de edição
 
-`.mmd` é a única fonte de verdade. O `.png` é artefato gerado — versionado no repo para que o `.md` renderize em qualquer viewer, mas nunca edite o PNG diretamente. Sempre que mudar o `.mmd`, re-gere o `.png` (passo 2 acima).
+`.mmd` é a única fonte de verdade. O `.svg` é artefato gerado — versionado no repo para que o `.md` renderize em qualquer viewer, mas nunca edite o SVG diretamente. Sempre que mudar o `.mmd`, re-gere o `.svg` (passo 2 acima).

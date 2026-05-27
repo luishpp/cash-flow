@@ -13,7 +13,7 @@ CashFlow é um sistema de controle de fluxo de caixa diário, composto por **doi
 
 O design responde a dois requisitos não-negociáveis do enunciado: o **write side não pode cair se o read side cair** ([RNF-01](rnfs/rnf-01-disponibilidade.md)) e o **read side precisa absorver 50 RPS com no máximo 5% de perda** ([RNF-02](rnfs/rnf-02-carga.md)). Toda decisão arquitetural se justifica nessas duas restrições ou nas sete dimensões adicionais cobradas pelo desafio (Escalabilidade, Resiliência, Segurança, Padrões, Integração, Manutenibilidade, Observabilidade).
 
-![Visão geral — Containers](diagrams/c4-containers.png)
+![Visão geral — Containers](diagrams/c4-containers.svg)
 
 > Fonte editável: [`diagrams/c4-containers.mmd`](diagrams/c4-containers.mmd) · Página C4 completa: [`diagrams/c4-containers.md`](diagrams/c4-containers.md).
 
@@ -46,7 +46,7 @@ A Transactions API **não conhece** a Balance API. Publica `CashFlow.Shared.Even
 
 **Escopo:** organização interna de cada projeto API — camadas com **regra de dependência** (Dependency Rule).
 
-![Clean Architecture — regra de dependência](diagrams/clean-architecture.png)
+![Clean Architecture — regra de dependência](diagrams/clean-architecture.svg)
 
 > Fonte editável: [`diagrams/clean-architecture.mmd`](diagrams/clean-architecture.mmd)
 
@@ -136,14 +136,14 @@ CashFlow.sln                                  ← solution file
 │                                                SecurityServiceCollectionExtensions
 │
 ├── tests/                                    ← 4 projetos de teste
-│   ├── CashFlow.UnitTests/                   ← 85 testes — Domain de ambos contextos
+│   ├── CashFlow.UnitTests/                   ← 95 testes — Domain de ambos contextos
 │   │   ├── Transactions/Domain/              ← TransactionTests, MoneyTests, MovementDateTests,
 │   │   │                                        TransactionTypeTests, AppUserTests, RefreshTokenTests
 │   │   ├── Balance/Domain/                   ← DailyBalanceTests
 │   │   ├── stryker-config.json               ← Stryker.NET (ADR-020) — threshold ≥ 70%
 │   │   └── StrykerOutput/                    ← Reports HTML (gitignored)
 │   │
-│   ├── CashFlow.Architecture.Tests/          ← 8 fitness functions (NetArchTest — ADR-012)
+│   ├── CashFlow.Architecture.Tests/          ← 12 fitness functions (NetArchTest — ADR-012)
 │   │   ├── LayerDependencyTests.cs           ← Dependency Rule (Clean Architecture)
 │   │   ├── ImmutabilityTests.cs              ← Rich Domain (sem setters públicos)
 │   │   └── NamingConventionTests.cs          ← Repositories/Interfaces
@@ -177,7 +177,7 @@ CashFlow.sln                                  ← solution file
 │   ├── analysis/analise-desafio-arquiteto.md ← Análise do desafio
 │   ├── adrs/                                 ← 25 ADRs individuais + README índice
 │   ├── rnfs/                                 ← 9 RNFs individuais + README índice
-│   ├── diagrams/                             ← Diagramas C4 + fluxos (PNG embedado + fonte .mmd)
+│   ├── diagrams/                             ← Diagramas C4 + fluxos (SVG embedado + fonte .mmd)
 │   ├── challenge/                            ← PDF original do desafio
 │   └── references/                           ← Material de estudo
 │
@@ -185,7 +185,7 @@ CashFlow.sln                                  ← solution file
 └── README.md                                 ← Entry point + glossário + instruções
 ```
 
-**Totais:** 3 projetos de produção + 4 de teste/carga = 7 projetos no `.sln`. **114 testes** automatizados (91 unit + 8 architecture + 15 BDD).
+**Totais:** 3 projetos de produção + 4 de teste/carga = 7 projetos no `.sln`. **122 testes** automatizados (95 unit + 12 architecture + 15 BDD).
 
 ### 3.2. Grafo de dependências entre projetos
 
@@ -242,7 +242,7 @@ Cada API segue o mesmo padrão de quatro camadas. As pastas refletem a regra de 
 
 ### 4.2. Regra de dependência (visualizada)
 
-![Regra de dependência — versão detalhada](diagrams/regra-dependencia.png)
+![Regra de dependência — versão detalhada](diagrams/regra-dependencia.svg)
 
 > Fonte editável: [`diagrams/regra-dependencia.mmd`](diagrams/regra-dependencia.mmd)
 >
@@ -271,13 +271,13 @@ Cada API segue o mesmo padrão de quatro camadas. As pastas refletem a regra de 
 
 **Caminho síncrono (request HTTP):**
 
-![Fluxo de escrita — sync](diagrams/fluxo-escrita.png)
+![Fluxo de escrita — sync](diagrams/fluxo-escrita.svg)
 
 > Fonte editável: [`diagrams/fluxo-escrita.mmd`](diagrams/fluxo-escrita.mmd)
 
 **Caminho assíncrono (publish — fora do request):**
 
-![Fluxo de outbox dispatch — async](diagrams/fluxo-outbox-dispatch.png)
+![Fluxo de outbox dispatch — async](diagrams/fluxo-outbox-dispatch.svg)
 
 > Fonte editável: [`diagrams/fluxo-outbox-dispatch.mmd`](diagrams/fluxo-outbox-dispatch.mmd)
 
@@ -287,7 +287,7 @@ Cada API segue o mesmo padrão de quatro camadas. As pastas refletem a regra de 
 
 ### 5.2. Fluxo de consumo: `TransactionConsumer`
 
-![Fluxo de consumo — Balance API](diagrams/fluxo-consumo.png)
+![Fluxo de consumo — Balance API](diagrams/fluxo-consumo.svg)
 
 > Fonte editável: [`diagrams/fluxo-consumo.mmd`](diagrams/fluxo-consumo.mmd)
 
@@ -295,7 +295,7 @@ Cada API segue o mesmo padrão de quatro camadas. As pastas refletem a regra de 
 
 ### 5.3. Fluxo de leitura: `GET /api/v1/balance/{date}`
 
-![Fluxo de leitura — saldo consolidado](diagrams/fluxo-leitura.png)
+![Fluxo de leitura — saldo consolidado](diagrams/fluxo-leitura.svg)
 
 > Fonte editável: [`diagrams/fluxo-leitura.mmd`](diagrams/fluxo-leitura.mmd)
 
@@ -333,7 +333,7 @@ CashFlow.Shared/
 
 ### 6.3. Comunicação entre contextos
 
-![Comunicação entre bounded contexts](diagrams/comunicacao-contextos.png)
+![Comunicação entre bounded contexts](diagrams/comunicacao-contextos.svg)
 
 > Fonte editável: [`diagrams/comunicacao-contextos.mmd`](diagrams/comunicacao-contextos.mmd)
 
@@ -349,7 +349,7 @@ CashFlow.Shared/
 | --- | --- |
 | **Por que** cada decisão foi tomada (com trade-offs) | [`adrs/`](adrs/) — 25 ADRs individuais |
 | **Quais requisitos** motivam cada decisão | [`rnfs/`](rnfs/) — 9 RNFs individuais |
-| **Como** os componentes se relacionam visualmente | [`diagrams/`](diagrams/) — diagramas C4 + fluxos + estruturais (PNG embedado + fonte `.mmd` editável) |
+| **Como** os componentes se relacionam visualmente | [`diagrams/`](diagrams/) — diagramas C4 + fluxos + estruturais (SVG embedado + fonte `.mmd` editável) |
 | **Quem é o usuário** e qual a jornada | [`analysis/analise-desafio-arquiteto.md` § 2-3](analysis/analise-desafio-arquiteto.md) |
 | **Como rodar** localmente | [`../README.md`](../README.md) |
 | **O que cada termo significa** (pt-br ↔ en-us) | [`../README.md` — Glossário](../README.md#glossário-de-termos) |

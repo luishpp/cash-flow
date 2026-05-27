@@ -24,7 +24,7 @@ A solução está no **2º percentil superior** de candidatos para esta vaga. St
 
 | Item | Status | Evidência |
 |---|---|---|
-| Desenho da solução | ✅ | C4 níveis 1-3 (PNG embedados) + fluxos sync/async sequenceDiagram, 25 ADRs, 9 RNFs |
+| Desenho da solução | ✅ | C4 níveis 1-3 (SVG embedados) + fluxos sync/async sequenceDiagram, 25 ADRs, 9 RNFs |
 | C# | ✅ | .NET 10 LTS, 3 projetos src + 3 de teste + 1 load test |
 | Testes | ✅ | UnitTests (91) + Architecture (8) + BDD-domínio (6) + BDD-E2E (9) = **114 verdes** + NBomber + Stryker mutação |
 | Boas práticas (DP, SOLID, padrões) | ✅ | CQRS, EDA, Clean Arch, Rich Domain, Repository/UoW, Application Services, Policy-based AuthZ, Argon2id, refresh-token rotation, **Outbox + Delayed Redelivery + DLQ admin (ADR-025)** |
@@ -57,7 +57,7 @@ A solução está no **2º percentil superior** de candidatos para esta vaga. St
 | Padrões Arquiteturais | 100% | A+ | CQRS + EDA + Clean Arch + Rich Domain + Application Services como Mediator alternativo |
 | Integração | 95% | A | REST/JSON + AMQP + abstração via MassTransit |
 | RNFs (definição+métrica) | **100% + evidência** | A+ | 9 RNFs com forma de verificação; RNF-02 com NBomber rodando |
-| Documentação | 100% | A+ | 25 ADRs + 9 RNFs + C4 (PNG embed + .mmd) + fluxos sequenceDiagram + BDD doc-executável + E2E — **diferencial** |
+| Documentação | 100% | A+ | 25 ADRs + 9 RNFs + C4 (SVG embed + .mmd) + fluxos sequenceDiagram + BDD doc-executável + E2E — **diferencial** |
 | Qualidade (UX/confiabilidade) | 97% | A+ | Persona+jornada + CI + load test + mutation score + E2E HTTP/DB com lockout e refresh — qualidade auditada nas 3 dimensões + ciclo de vida de sessão. |
 
 **Média ponderada da seção: ~97%.** Salto V5→V6 vem de Segurança (95→97) com lockout + refresh tokens reais validados E2E.
@@ -151,7 +151,7 @@ Priorizado por **custo × impacto**:
 | V4 (pós-Stryker) | + Stryker.NET (ADR-020) + 28 testes novos + 20 ADRs + mutation score 95.45% / 100% | ~96 |
 | V5 (pós-Argon2id/E2E) | + Argon2id real (ADR-021) + AppUser entity + BDD E2E via WebApplicationFactory + Testcontainers (ADR-022) + 22 ADRs | ~97 |
 | V6 | + Account lockout (ADR-023) + Refresh tokens com rotação (ADR-024) + JWT 60→15min + 4 cenários BDD E2E novos (lockout + refresh + logout) + 24 ADRs + 108 testes verdes | ~97-98 |
-| **V7 (atual)** | **+ Outbox transacional em Dapper + 2 níveis de retry (Polly + Delayed Redelivery 1/5/15min) + DLQ admin (count + redeliver) + plugin RabbitMQ `delayed_message_exchange` + ADR-025 (que supera o ADR-007) + diagramas C4 PNG embedados + fluxos sequenceDiagram + 25 ADRs** | **~98-99** |
+| **V7 (atual)** | **+ Outbox transacional em Dapper + 2 níveis de retry (Polly + Delayed Redelivery 1/5/15min) + DLQ admin (count + redeliver) + plugin RabbitMQ `delayed_message_exchange` + ADR-025 (que supera o ADR-007) + diagramas C4 SVG embedados + fluxos sequenceDiagram + 25 ADRs** | **~98-99** |
 | Projetada pós-§7 | + BDD cross-API que valida outbox→broker→consumer ponta-a-ponta + rate limit IP + reuse-detection cascade + MFA + CodeQL + OTel | ~99 |
 
 ### Detalhe das mudanças "V4 → V5"

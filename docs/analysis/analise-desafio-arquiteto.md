@@ -170,13 +170,13 @@ Para o MVP: prefixo `/api/v1/` em todos endpoints, healthchecks `/health/live` e
 
 ### 6.1. Level 1 — Contexto
 
-![C4 Level 1 — Contexto](../diagrams/c4-contexto.png)
+![C4 Level 1 — Contexto](../diagrams/c4-contexto.svg)
 
 > Fonte editável: [`../diagrams/c4-contexto.mmd`](../diagrams/c4-contexto.mmd) · Página: [`../diagrams/c4-contexto.md`](../diagrams/c4-contexto.md)
 
 ### 6.2. Level 2 — Containers
 
-![C4 Level 2 — Containers](../diagrams/c4-containers.png)
+![C4 Level 2 — Containers](../diagrams/c4-containers.svg)
 
 > Fonte editável: [`../diagrams/c4-containers.mmd`](../diagrams/c4-containers.mmd) · Página: [`../diagrams/c4-containers.md`](../diagrams/c4-containers.md)
 
@@ -190,7 +190,7 @@ Para o MVP: prefixo `/api/v1/` em todos endpoints, healthchecks `/health/live` e
 
 ### 6.3. Level 3 — Componentes da Transactions API
 
-![C4 Level 3 — Componentes Transactions API](../diagrams/c4-componentes-transactions.png)
+![C4 Level 3 — Componentes Transactions API](../diagrams/c4-componentes-transactions.svg)
 
 > Fonte editável: [`../diagrams/c4-componentes-transactions.mmd`](../diagrams/c4-componentes-transactions.mmd) · Página: [`../diagrams/c4-componentes-transactions.md`](../diagrams/c4-componentes-transactions.md)
 
@@ -198,7 +198,7 @@ Para o MVP: prefixo `/api/v1/` em todos endpoints, healthchecks `/health/live` e
 
 ### 6.4. Level 3 — Componentes do Consumer (dentro da Balance API)
 
-![C4 Level 3 — Componentes Balance API + Consumer](../diagrams/c4-componentes-balance.png)
+![C4 Level 3 — Componentes Balance API + Consumer](../diagrams/c4-componentes-balance.svg)
 
 > Fonte editável: [`../diagrams/c4-componentes-balance.mmd`](../diagrams/c4-componentes-balance.mmd) · Página: [`../diagrams/c4-componentes-balance.md`](../diagrams/c4-componentes-balance.md)
 
@@ -289,52 +289,58 @@ Para o MVP: prefixo `/api/v1/` em todos endpoints, healthchecks `/health/live` e
 ## 10. Estrutura de Projeto
 
 ```text
-/src
-  /CashFlow.Transactions.API   → Write Side + /auth + Outbox dispatcher
-                                  (Domain/, Application/{Auth,DTOs,Services,Validators},
-                                   Infrastructure/{Auth,Persistence,Repositories,
-                                                   Messaging,Outbox,Migrations},
-                                   Controllers/{TransactionsController, AuthController})
-
-  /CashFlow.Balance.API        → Read Side + Consumer + DLQ admin
-                                  (Domain/, Application/{Admin,DTOs,Services},
-                                   Infrastructure/{Persistence,Repositories,Migrations},
-                                   Controllers/{BalanceController, AdminController},
-                                   Consumers/TransactionConsumer)
-
-  /CashFlow.Shared             → Eventos de integração + Security primitives (JWT, Policies)
-
-/tests
-  /CashFlow.UnitTests             → 85 testes — Rich Domain de ambos contextos
-  /CashFlow.Architecture.Tests    → 8 fitness functions (NetArchTest)
-  /CashFlow.Bdd.Tests             → 15 cenários Reqnroll pt-BR (domínio + E2E via Testcontainers)
-  /CashFlow.LoadTests             → NBomber — validação empírica do RNF-02
-
-/infra
-  /postgres/init.sql              → Criação de users + schemas + GRANTs
-  /rabbitmq/Dockerfile            → Imagem custom com plugin delayed-message-exchange (ADR-025)
-
-/.github/workflows
-  ci.yml                          → build + 3 suítes (push/PR)
-  mutation.yml                    → Stryker (workflow_dispatch manual)
-
-/.config
-  dotnet-tools.json               → Stryker como local tool
-
-/docs
-  /challenge   → PDF original do desafio
-  /analysis    → Este documento (análise + decisões)
-  /adrs        → 25 ADRs em arquivos individuais
-  /rnfs        → 9 RNFs em arquivos individuais
-  /diagrams    → Diagramas C4 + fluxos (PNG embedado + fonte .mmd editável)
-  /references  → Material de estudo, vocabulário, plano de preparação
-
-docker-compose.yml   → PostgreSQL + RabbitMQ (custom) + 2 APIs com healthchecks
-CashFlow.sln         → Solution file (3 src + 4 tests = 7 projetos)
-README.md            → Instruções de execução
+CashFlow.sln                                  ← solution file (3 src + 4 tests = 7 projetos)
+│
+├── src/
+│   ├── CashFlow.Transactions.API/            ← Write side + /auth + Outbox dispatcher
+│   │   ├── Domain/                           ← Rich Domain (Entities, ValueObjects, Exceptions)
+│   │   ├── Application/                      ← Auth, DTOs, Services, Validators
+│   │   ├── Infrastructure/                   ← Auth, Persistence, Repositories, 
+│   │   │                                       Messaging, Outbox, Migrations
+│   │   └── Controllers/                      ← TransactionsController, AuthController
+│   │
+│   ├── CashFlow.Balance.API/                 ← Read side + Consumer + DLQ admin
+│   │   ├── Domain/                           ← DailyBalance
+│   │   ├── Application/                      ← Admin, DTOs, Services
+│   │   ├── Infrastructure/                   ← Persistence, Repositories, Migrations
+│   │   ├── Controllers/                      ← BalanceController, AdminController
+│   │   └── Consumers/                        ← TransactionConsumer (BackgroundService)
+│   │
+│   └── CashFlow.Shared/                      ← Shared Kernel mínimo
+│       ├── Events/                           ← TransactionRegistered (contrato de integração)
+│       └── Security/                         ← JWT primitives + AuthorizationPolicies
+│
+├── tests/
+│   ├── CashFlow.UnitTests/                   ← 95 testes — Rich Domain de ambos contextos
+│   ├── CashFlow.Architecture.Tests/          ← 12 fitness functions (NetArchTest)
+│   ├── CashFlow.Bdd.Tests/                   ← 15 cenários Reqnroll pt-BR
+│   │                                           (domínio + E2E via Testcontainers)
+│   └── CashFlow.LoadTests/                   ← NBomber — validação empírica do RNF-02
+│
+├── infra/
+│   ├── postgres/init.sql                     ← Users + schemas + GRANTs (1º start)
+│   └── rabbitmq/Dockerfile                   ← + plugin delayed-message-exchange (ADR-025)
+│
+├── .github/workflows/
+│   ├── ci.yml                                ← build + 3 suítes (push/PR)
+│   └── mutation.yml                          ← Stryker (workflow_dispatch manual)
+│
+├── .config/
+│   └── dotnet-tools.json                     ← Stryker como local tool
+│
+├── docs/
+│   ├── challenge/                            ← PDF original do desafio
+│   ├── analysis/                             ← Este documento (análise + decisões)
+│   ├── adrs/                                 ← 25 ADRs em arquivos individuais
+│   ├── rnfs/                                 ← 9 RNFs em arquivos individuais
+│   ├── diagrams/                             ← Diagramas C4 + fluxos (SVG embedado + fonte .mmd)
+│   └── references/                           ← Material de estudo, vocabulário, plano
+│
+├── docker-compose.yml                        ← Postgres + RabbitMQ + 2 APIs com healthchecks
+└── README.md                                 ← Entry point + glossário + instruções
 ```
 
-**3 projetos de produção + 4 de teste/carga** (UnitTests, Architecture.Tests, Bdd.Tests, LoadTests). Separação por pastas internas (Domain/, Application/, Infrastructure/) dentro de cada API demonstra Clean Architecture sem a cerimônia de 11 projetos para um domínio com 2 entidades.
+**Totais:** 3 projetos de produção + 4 de teste/carga = 7 projetos no `.sln`. **122 testes** automatizados (95 unit + 12 architecture + 15 BDD). Separação por pastas internas (`Domain/`, `Application/`, `Infrastructure/`) dentro de cada API demonstra Clean Architecture sem a cerimônia de 11 projetos para um domínio com 2 entidades — regra de dependência verificada por fitness functions ([ADR-012](../adrs/adr-012-architecture-tests.md)).
 
 ---
 
