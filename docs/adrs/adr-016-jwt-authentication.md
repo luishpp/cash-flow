@@ -105,6 +105,22 @@ Este ADR documenta o **MVP local**, suficiente para demonstrar conhecimento de s
 | Sem MFA | TOTP (RFC 6238) + recovery codes |
 | Sem API Gateway | Azure APIM / Apigee na frente — centraliza JWT validation, rate limit distribuído, observabilidade |
 
+### Aprofundamento: por que a chave simétrica compartilhada não escala para produção
+
+> Ponto levantado em avaliação técnica: *"a chave simétrica compartilhada entre serviços ficaria limitada a um cenário local. Em produção, faria mais sentido evoluir para RSA/ECDSA com JWKS, rotação de chaves e separação mais clara de responsabilidades."* Confirma e detalha a linha "Symmetric key → RSA/ECDSA + JWKS" da tabela acima.
+
+**O risco do HS256 compartilhado (desenho atual):** com chave simétrica, *quem valida o token tem a mesma chave de quem emite*. Hoje Transactions e Balance compartilham a mesma `SecretKey` — ou seja, o Balance, que deveria apenas **verificar** tokens, é tecnicamente capaz de **forjá-los**. A chave de validação vira um segredo crítico replicado por todos os serviços: a superfície de ataque cresce com o número de serviços, e fere o princípio do menor privilégio (*confused deputy*).
+
+**A evolução (RS256/ES256 + JWKS):**
+
+- O emissor (auth service / IdP) guarda a **chave privada** e é o **único** que assina. Os consumidores recebem só a **chave pública** — que não é segredo e pode ser distribuída livremente.
+- Os consumidores buscam a pública de um endpoint **JWKS** (`/.well-known/jwks.json`) e cacheiam. Some a necessidade de distribuir segredo entre serviços.
+- **Rotação sem downtime via `kid`:** o JWKS expõe várias chaves identificadas por *key ID* (claim `kid` no header do JWT). Publica-se a chave nova, passa-se a assinar com ela, e os consumidores resolvem a pública correta pelo `kid` do token. A antiga é aposentada após expirarem os tokens que ela assinou. Zero coordenação síncrona entre serviços.
+- **ES256 (ECDSA) vs RS256 (RSA):** ECDSA gera chaves/assinaturas menores e assina mais rápido (tendência atual); RSA tem suporte mais universal. Ambos resolvem o ponto.
+- **Separação de responsabilidades:** o desenho torna explícito que *um* serviço tem o poder de emitir identidade; os demais apenas consomem. É exatamente a "separação mais clara" apontada na avaliação.
+
+**Ligação com o que já existe no MVP:** a [ADR-024](adr-024-refresh-tokens-rotation.md) já encurtou o access token para 15 min e adicionou refresh rotativo — isso mitiga o problema de revogação (JWT stateless não revoga antes de expirar) e é pré-requisito natural do desenho assimétrico em produção.
+
 ## Validação
 
 - **Testes unitários atuais** continuam verdes (não testam HTTP — bypass do middleware Authorization).
