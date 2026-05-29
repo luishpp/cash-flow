@@ -31,6 +31,24 @@ Os **RNF-05 (Segurança)** e **RNF-09 (Observabilidade)** são objetivos do desa
 - **OpenTelemetry** completo (traces + métricas + logs) com Application Insights — substitui o Serilog/Console quando produção justificar. Propaga `W3C TraceContext` por headers AMQP entre Transactions API → broker → Balance API.
 - **Stryker.NET** — testes de mutação para validar qualidade dos testes unitários (complementa ArchTests da [ADR-012](adr-012-architecture-tests.md)).
 
+## Observabilidade em produção: dos logs aos três pilares
+
+> Ponto levantado em avaliação técnica: *"para o contexto do teste atende, mas ficou em nível básico. Em sistemas distribuídos, rastreamento distribuído, métricas por endpoint, correlação entre serviços, profundidade de fila, latência e falhas por componente fazem muita diferença na operação."* O MVP entrega o pilar de **logs** (Serilog estruturado) + health probes; os outros dois pilares são o degrau seguinte.
+
+| Pilar | Estado no MVP | Evolução para produção |
+|---|---|---|
+| **Logs** | Serilog estruturado + enricher `Service` | OK como base; correlacionar com trace ID |
+| **Traces** | Ausente | **OpenTelemetry + W3C TraceContext** propagado pelo broker. O `traceparent` é injetado nos headers AMQP na publicação e extraído no consumer — MassTransit tem instrumentação OTel nativa que faz isso. É o item de maior impacto operacional |
+| **Métricas** | Health probes apenas | **RED por endpoint** (Rate, Errors, Duration), com latência em **P95/P99** (não média), via `System.Diagnostics.Metrics` + OTel → Prometheus/Grafana ou Application Insights |
+
+**Métricas específicas do nosso desenho que viram obrigatórias em produção:**
+
+- **Profundidade de fila + idade da mensagem mais antiga.** O consumer roda FIFO deliberado (SAC + `ConcurrentMessageLimit=1` + `PrefetchCount=1` — ver [ADR-004](adr-004-consumer-hostedservice.md)/[ADR-025](adr-025-outbox-and-dlq.md)). Esse desenho sacrifica throughput por ordem; **a profundidade de fila é justamente a métrica que diz se esse trade-off está machucando** — fila crescendo = o consumer single-threaded não está dando conta.
+- **DLQ depth como alerta de primeira classe.** O endpoint admin de redelivery da [ADR-025](adr-025-outbox-and-dlq.md) já existe; em produção, mensagem caindo na `*_error` deve disparar alerta, não ser descoberta por acaso.
+- **Latência e taxa de falha por componente** (API write, dispatcher de outbox, consumer) — para localizar o gargalo no fluxo `API → outbox → broker → consumer`.
+
+**Por que tracing distribuído importa neste fluxo especificamente:** sem ele, não há como responder *"esta request de transação gerou qual mensagem, consumida quando, e falhou onde?"* — o contexto se perde na fronteira do broker. Propagar o `traceparent` pelo AMQP é o que costura o span da API ao span do consumer num único trace.
+
 ## ADRs relacionadas
 
 - [ADR-006](adr-006-rate-limiting.md) — rate limiting é parte da defesa em camadas

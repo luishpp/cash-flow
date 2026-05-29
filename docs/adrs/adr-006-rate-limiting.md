@@ -51,6 +51,23 @@ Com a fila de 5 (`QueueLimit`), picos curtos de até 55 req/s são absorvidos. A
 | Atende RNF-02 para o cenário do desafio (instância única) | Não substitui um API Gateway completo (sem roteamento, sem auth centralizada) |
 | Resposta padrão HTTP 429 com `Retry-After` | — |
 
+## Evolução para produção: rate limiting distribuído
+
+> Ponto levantado em avaliação técnica do projeto: *"a implementação por instância funciona em cenário local ou com uma única réplica, mas com múltiplas réplicas perde efetividade."* Confirma o trade-off já assumido acima — esta seção detalha o caminho de evolução.
+
+**O problema concreto:** o `AddRateLimiter` mantém o contador **em memória do processo**. Com N réplicas atrás de um load balancer, o limite efetivo vira **N × `PermitLimit`** (no nosso caso, N × 50 req/s) — e não-determinístico, porque depende de qual réplica o LB escolheu para cada request. O RNF-02 deixaria de ser garantido em escala horizontal.
+
+**Caminhos de evolução:**
+
+| Abordagem | Como | Trade-off |
+|---|---|---|
+| **Redis como store central** | Pacote tipo `RedisRateLimiting` plugando no mesmo middleware; contador atômico via script Lua | Adiciona 1 round-trip de rede no caminho crítico de cada request; Redis vira dependência de disponibilidade |
+| **API Gateway / Ingress** | Azure APIM, Kong, YARP ou ingress fazem o rate limit na borda, antes da request gastar recurso de app | Menos granularidade de regra de negócio; mais um hop na malha |
+
+**Algoritmo importa:** a *fixed window* atual sofre com burst na virada da janela (até 2× o limite em torno do segundo de transição). Em produção distribuída o alvo seria **sliding window** ou **token bucket** sobre Redis, que suavizam o burst.
+
+**Decisão de falha a explicitar (fail-open vs fail-closed):** se o Redis cair, o rate limiter precisa escolher entre *deixar passar* (fail-open — prioriza disponibilidade, aceita risco de sobrecarga) ou *bloquear* (fail-closed — prioriza proteção, aceita indisponibilidade). Não há resposta única: proteção contra abuso tolera fail-open; proteção de um recurso downstream frágil pede fail-closed. Essa decisão deve ser consciente e documentada na ADR que implementar a evolução.
+
 ## Alternativa descartada
 
 **Azure API Management** — resolve rate limiting, auth e roteamento, mas é um serviço gerenciado que custa ~US$300/mês e não roda em Docker. Para um desafio que precisa funcionar com `docker compose up`, é over-engineering. Documentado como evolução futura.
