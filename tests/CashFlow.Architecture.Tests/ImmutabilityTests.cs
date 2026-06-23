@@ -24,11 +24,23 @@ public class ImmutabilityTests
     public void Balance_Entities_MustNotHavePublicSetters()
     {
         var violations = FindEntitiesWithPublicSetters(
-            typeof(CashFlow.Balance.API.Domain.Entities.DailyBalance).Assembly,
-            "CashFlow.Balance.API.Domain.Entities");
+            typeof(CashFlow.Balance.Core.Domain.Entities.DailyBalance).Assembly,
+            "CashFlow.Balance.Core.Domain.Entities");
 
         violations.Should().BeEmpty(
             "Balance entities must have only private setters (Rich Domain).");
+    }
+
+    [Fact]
+    public void Identity_Entities_MustNotHavePublicSetters()
+    {
+        // ADR-027: AppUser + RefreshToken vivem em Identity.API.Domain.Entities.
+        var violations = FindEntitiesWithPublicSetters(
+            typeof(CashFlow.Identity.API.Domain.Entities.AppUser).Assembly,
+            "CashFlow.Identity.API.Domain.Entities");
+
+        violations.Should().BeEmpty(
+            "Identity entities must have only private setters (Rich Domain).");
     }
 
     private static List<string> FindEntitiesWithPublicSetters(Assembly assembly, string @namespace)

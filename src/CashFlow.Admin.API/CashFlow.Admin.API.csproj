@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>CashFlow.Admin.API</RootNamespace>
+  </PropertyGroup>
+
+  <!--
+    Admin.API (ADR-028) — endpoints administrativos da DLQ.
+    Defesa arquitetural vs Balance.API (4 limites):
+      - Escala: 1 usuário ops vs 50 RPS da read API
+      - Falha: bug em admin não pode derrubar GET /balance
+      - Deploy: mudanças em ops não forçam redeploy de read API
+      - Segurança: autz mais restrita (RequireAdmin no futuro)
+    Sem Postgres — só fala com RabbitMQ direto via RabbitMQ.Client.
+  -->
+  <ItemGroup>
+    <PackageReference Include="RabbitMQ.Client" Version="7.1.2" />
+    <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CashFlow.Shared\CashFlow.Shared.csproj" />
+  </ItemGroup>
+
+</Project>

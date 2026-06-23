@@ -25,6 +25,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\CashFlow.Transactions.API\CashFlow.Transactions.API.csproj" />
     <ProjectReference Include="..\..\src\CashFlow.Balance.API\CashFlow.Balance.API.csproj" />
+    <ProjectReference Include="..\..\src\CashFlow.Balance.Core\CashFlow.Balance.Core.csproj" />
+    <ProjectReference Include="..\..\src\CashFlow.Identity.API\CashFlow.Identity.API.csproj" />
     <ProjectReference Include="..\..\src\CashFlow.Shared\CashFlow.Shared.csproj" />
   </ItemGroup>
 

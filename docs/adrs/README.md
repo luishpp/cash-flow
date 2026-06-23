@@ -11,7 +11,7 @@ Cada decisão técnica deste projeto é registrada como uma ADR (Architecture De
 | [ADR-001](adr-001-cqrs.md) | CQRS — separação write/read | Requisito do enunciado: dois serviços independentes | RNF-01, RNF-03, RNF-06 |
 | [ADR-002](adr-002-rabbitmq-masstransit.md) | RabbitMQ + MassTransit | Roda local em Docker; MassTransit abstrai broker | RNF-01, RNF-04, RNF-07 |
 | [ADR-003](adr-003-postgres-schemas.md) | PostgreSQL com 1 DB + 2 schemas | Isolamento real via GRANTs; ARM64; menos cerimônia | RNF-01 |
-| [ADR-004](adr-004-consumer-hostedservice.md) | Consumer como HostedService no MVP | Menos containers; processo dedicado documentado como evolução | RNF-01, RNF-03 |
+| [ADR-004](adr-004-consumer-hostedservice.md) | ~~Consumer como HostedService no MVP~~ **Superseded by ADR-026** | Defesa pragmática original; substituída pela análise dos 4 limites em ADR-026 | RNF-01, RNF-03 |
 | [ADR-005](adr-005-polly-retry.md) | Polly Retry (CB+DLQ como evolução) | Simplicidade pragmática para 50 req/s | RNF-02, RNF-04 |
 | [ADR-006](adr-006-rate-limiting.md) | Rate limiting nativo do ASP.NET Core | Atende picos sem API Gateway externo | RNF-02, RNF-05 |
 | [ADR-007](adr-007-publish-after-commit.md) | Publicação de evento após commit | Evita mensagens fantasma | Integridade |
@@ -33,6 +33,9 @@ Cada decisão técnica deste projeto é registrada como uma ADR (Architecture De
 | [ADR-023](adr-023-account-lockout.md) | Account lockout (5 tentativas / 15 min) | 2ª camada contra brute-force, complementa Argon2id; counter + locked_until em app_users | RNF-05 |
 | [ADR-024](adr-024-refresh-tokens-rotation.md) | Refresh tokens opacos com rotação a cada uso | Access JWT cai para 15min; logout funciona; rotação detecta reuso | RNF-05 |
 | [ADR-025](adr-025-outbox-and-dlq.md) | Outbox transacional + Delayed Redelivery + DLQ admin | Fecha a janela do ADR-007 sem EF; absorve outage de minutos; DLQ visível e reprocessável | RNF-04, Integridade |
+| [ADR-026](adr-026-balance-worker-extraction.md) | **Extração CashFlow.Balance.Worker** (supersede ADR-004) | Defesa pelos 4 limites: escala/falha/deploy/domínio; Balance.Core como shared kernel intra-BC | RNF-01, RNF-03, RNF-08 |
+| [ADR-027](adr-027-identity-service-extraction.md) | **Extração CashFlow.Identity.API** (BC próprio) | Domínio de Identity isolado (linguagem ubíqua + ciclo regulatório próprio); schema PostgreSQL + user dedicado | RNF-05, RNF-08 |
+| [ADR-028](adr-028-admin-api-extraction.md) | **Extração CashFlow.Admin.API** (DLQ ops) | Escala ínfima vs read API; bug em admin não derruba leitura; sem Postgres | RNF-01, RNF-04, RNF-05 |
 
 ## Rastreabilidade: RNF → ADRs
 

@@ -1,7 +1,7 @@
 using CashFlow.Balance.API.Application.Services;
-using CashFlow.Balance.API.Domain.Entities;
-using CashFlow.Balance.API.Infrastructure.Persistence;
-using CashFlow.Balance.API.Infrastructure.Repositories;
+using CashFlow.Balance.Core.Domain.Entities;
+using CashFlow.Balance.Core.Infrastructure.Persistence;
+using CashFlow.Balance.Core.Infrastructure.Repositories;
 using FluentAssertions;
 using Moq;
 

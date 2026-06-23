@@ -289,58 +289,71 @@ Para o MVP: prefixo `/api/v1/` em todos endpoints, healthchecks `/health/live` e
 ## 10. Estrutura de Projeto
 
 ```text
-CashFlow.sln                                  ← solution file (3 src + 4 tests = 7 projetos)
+CashFlow.sln                                  ← solution file (7 src + 4 tests = 11 projetos)
 │
 ├── src/
-│   ├── CashFlow.Transactions.API/            ← Write side + /auth + Outbox dispatcher
-│   │   ├── Domain/                           ← Rich Domain (Entities, ValueObjects, Exceptions)
-│   │   ├── Application/                      ← Auth, DTOs, Services, Validators
-│   │   ├── Infrastructure/                   ← Auth, Persistence, Repositories, 
-│   │   │                                       Messaging, Outbox, Migrations
-│   │   └── Controllers/                      ← TransactionsController, AuthController
+│   ├── CashFlow.Identity.API/                ← Auth BC: login, refresh, lockout (ADR-027)
+│   │   ├── Controllers/                      ← AuthController
+│   │   ├── Domain/                           ← AppUser, RefreshToken, DomainException
+│   │   ├── Application/Auth/                 ← AuthService, Argon2id, RefreshTokenFactory
+│   │   ├── Infrastructure/                   ← Auth, Persistence, Repositories, Migrations
 │   │
-│   ├── CashFlow.Balance.API/                 ← Read side + Consumer + DLQ admin
-│   │   ├── Domain/                           ← DailyBalance
-│   │   ├── Application/                      ← Admin, DTOs, Services
-│   │   ├── Infrastructure/                   ← Persistence, Repositories, Migrations
-│   │   ├── Controllers/                      ← BalanceController, AdminController
-│   │   └── Consumers/                        ← TransactionConsumer (BackgroundService)
+│   ├── CashFlow.Transactions.API/            ← Write side + Outbox dispatcher
+│   │   ├── Domain/                           ← Transaction + Value Objects
+│   │   ├── Application/                      ← DTOs, Services, Validators
+│   │   ├── Infrastructure/                   ← Persistence, Repositories, Messaging, Outbox
+│   │   └── Controllers/                      ← TransactionsController
 │   │
-│   └── CashFlow.Shared/                      ← Shared Kernel mínimo
-│       ├── Events/                           ← TransactionRegistered (contrato de integração)
-│       └── Security/                         ← JWT primitives + AuthorizationPolicies
+│   ├── CashFlow.Balance.API/                 ← Read side puro (GET /balance) — ADR-026
+│   │   ├── Controllers/                      ← BalanceController
+│   │   └── Application/                      ← DTOs, BalanceQueryService
+│   │
+│   ├── CashFlow.Balance.Worker/              ← Consumer + dono das migrations (ADR-026)
+│   │   ├── Consumers/                        ← TransactionConsumer
+│   │   ├── Application/Services/             ← ConsolidationService
+│   │   └── Infrastructure/                   ← ProcessedEventsRepository, Migrations
+│   │
+│   ├── CashFlow.Balance.Core/                ← Shared kernel intra-BC (ADR-026)
+│   │   ├── Domain/                           ← DailyBalance, DomainException
+│   │   └── Infrastructure/                   ← Persistence (UoW) + BalanceRepository
+│   │
+│   ├── CashFlow.Admin.API/                   ← DLQ ops, sem Postgres (ADR-028)
+│   │   ├── Controllers/                      ← AdminController
+│   │   └── Application/Admin/                ← ErrorQueueRedeliveryService
+│   │
+│   └── CashFlow.Shared/                      ← Shared Kernel cross-BC mínimo
+│       ├── Events/                           ← TransactionRegistered
+│       └── Security/                         ← JWT primitives (Identity emite, outros validam)
 │
 ├── tests/
-│   ├── CashFlow.UnitTests/                   ← 95 testes — Rich Domain de ambos contextos
-│   ├── CashFlow.Architecture.Tests/          ← 12 fitness functions (NetArchTest)
+│   ├── CashFlow.UnitTests/                   ← 91 testes — Domain de 3 BCs
+│   │   ├── Identity/Domain/                  ← AppUserTests, RefreshTokenTests
+│   │   ├── Transactions/Domain/              ← TransactionTests, MoneyTests, etc.
+│   │   └── Balance/                          ← DailyBalanceTests, BalanceQueryServiceTests
+│   ├── CashFlow.Architecture.Tests/          ← 18 fitness functions (era 8)
+│   │   ├── LayerDependencyTests.cs           ← Clean Architecture
+│   │   ├── ImmutabilityTests.cs              ← Rich Domain
+│   │   ├── NamingConventionTests.cs          ← Convenções
+│   │   └── BoundedContextIsolationTests.cs   ← NOVO: isolamento cross-BC
 │   ├── CashFlow.Bdd.Tests/                   ← 15 cenários Reqnroll pt-BR
-│   │                                           (domínio + E2E via Testcontainers)
-│   └── CashFlow.LoadTests/                   ← NBomber — validação empírica do RNF-02
+│   └── CashFlow.LoadTests/                   ← NBomber — validação RNF-02
 │
 ├── infra/
-│   ├── postgres/init.sql                     ← Users + schemas + GRANTs (1º start)
+│   ├── postgres/init.sql                     ← 3 users + 3 schemas + GRANTs cruzados REVOKE
 │   └── rabbitmq/Dockerfile                   ← + plugin delayed-message-exchange (ADR-025)
 │
-├── .github/workflows/
-│   ├── ci.yml                                ← build + 3 suítes (push/PR)
-│   └── mutation.yml                          ← Stryker (workflow_dispatch manual)
+├── .github/workflows/                        ← ci.yml + mutation.yml
+├── .config/dotnet-tools.json                 ← Stryker como local tool
+├── docs/                                     ← architecture.md + analysis/ + 28 ADRs + 9 RNFs
+│                                                + diagrams (SVG + .mmd) + references/
 │
-├── .config/
-│   └── dotnet-tools.json                     ← Stryker como local tool
-│
-├── docs/
-│   ├── challenge/                            ← PDF original do desafio
-│   ├── analysis/                             ← Este documento (análise + decisões)
-│   ├── adrs/                                 ← 25 ADRs em arquivos individuais
-│   ├── rnfs/                                 ← 9 RNFs em arquivos individuais
-│   ├── diagrams/                             ← Diagramas C4 + fluxos (SVG embedado + fonte .mmd)
-│   └── references/                           ← Material de estudo, vocabulário, plano
-│
-├── docker-compose.yml                        ← Postgres + RabbitMQ + 2 APIs com healthchecks
+├── docker-compose.yml                        ← Postgres + RabbitMQ + 5 serviços CashFlow
 └── README.md                                 ← Entry point + glossário + instruções
 ```
 
-**Totais:** 3 projetos de produção + 4 de teste/carga = 7 projetos no `.sln`. **122 testes** automatizados (95 unit + 12 architecture + 15 BDD). Separação por pastas internas (`Domain/`, `Application/`, `Infrastructure/`) dentro de cada API demonstra Clean Architecture sem a cerimônia de 11 projetos para um domínio com 2 entidades — regra de dependência verificada por fitness functions ([ADR-012](../adrs/adr-012-architecture-tests.md)).
+**Totais:** **7 projetos** de produção + 4 de teste/carga = 11 projetos no `.sln`. **124+ testes** automatizados (91 unit + 18 architecture + 15 BDD), todos verdes em 99/99 que rodam sem Docker.
+
+**Defesa do "por que 7":** cada projeto separado é defendido pelos **4 limites arquiteturais** (escala/falha/deploy/domínio) em sua ADR correspondente — não é cerimônia, é estrutura justificada. Veja [ADR-026](../adrs/adr-026-balance-worker-extraction.md), [ADR-027](../adrs/adr-027-identity-service-extraction.md), [ADR-028](../adrs/adr-028-admin-api-extraction.md). Camadas internas (`Domain/`, `Application/`, `Infrastructure/`) dentro de cada projeto continuam validadas por fitness functions ([ADR-012](../adrs/adr-012-architecture-tests.md)) — agora **18** ao invés de 8, com nova suite de isolamento cross-BC.
 
 ---
 

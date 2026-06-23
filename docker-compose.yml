@@ -1,6 +1,21 @@
-# docker-compose.yml — Orquestração local do CashFlow (ADR-008).
-# Sobe: PostgreSQL + RabbitMQ + 2 APIs.
-# Healthchecks garantem que APIs só iniciam quando deps estão prontas.
+# docker-compose.yml — Orquestração local do CashFlow.
+# Estrutura pós-refator distribuído (ADR-026 Worker, ADR-027 Identity, ADR-028 Admin):
+#
+#   ┌─────────────┐    ┌──────────────────┐    ┌─────────────┐    ┌─────────────┐
+#   │ identity-api│    │ api-transactions │    │ api-balance │    │  admin-api  │
+#   │   :5000     │    │     :5001        │    │    :5002    │    │    :5003    │
+#   └──────┬──────┘    └────────┬─────────┘    └──────┬──────┘    └──────┬──────┘
+#          │                    │                     │                  │
+#          │ (identity schema)  │ (transactions)      │ (balance reads)  │ (DLQ ops)
+#          ▼                    ▼                     ▼                  ▼
+#       ┌────────────────────────────────┐         ┌──────────────────────────┐
+#       │       PostgreSQL :5432         │         │      RabbitMQ :5672      │
+#       └────────────────────────────────┘         └──────────┬───────────────┘
+#                                                              │ (consumer)
+#                                                  ┌──────────▼──────────────┐
+#                                                  │   balance-worker        │
+#                                                  │   (sem porta HTTP)      │
+#                                                  └─────────────────────────┘
 
 services:
   postgres:
@@ -23,20 +38,6 @@ services:
     networks:
       - cashflow-net
 
-  # Optional UI for Postgres (uncomment to use)
-  # pgadmin:
-  #   image: dpage/pgadmin4:latest
-  #   container_name: cashflow-pgadmin
-  #   environment:
-  #     PGADMIN_DEFAULT_EMAIL: admin@cashflow.com
-  #     PGADMIN_DEFAULT_PASSWORD: admin
-  #   ports:
-  #     - "5050:80"
-  #   depends_on:
-  #     - postgres
-  #   networks:
-  #     - cashflow-net      
-
   rabbitmq:
     build:
       context: ./infra/rabbitmq
@@ -52,6 +53,40 @@ services:
     networks:
       - cashflow-net
 
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Identity.API (ADR-027) — bounded context próprio de autenticação.
+  # Schema identity, user app_identity. Emite JWT que os outros serviços validam.
+  # ─────────────────────────────────────────────────────────────────────────────
+  identity-api:
+    build:
+      context: .
+      dockerfile: src/CashFlow.Identity.API/Dockerfile
+    container_name: cashflow-identity
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=cashflow;Username=app_identity;Password=identity_pwd;Include Error Detail=true"
+      # JWT — mesma chave/audience em TODOS os serviços (apenas Identity emite; outros validam).
+      # ⚠️ Em produção: ler de Key Vault, NUNCA do compose.
+      Authentication__Jwt__Issuer: cashflow
+      Authentication__Jwt__Audience: cashflow-api
+      Authentication__Jwt__SecretKey: "demo-only-symmetric-key-min-32-bytes-please-change"
+      Authentication__Jwt__TokenExpirationMinutes: "15"
+      # Lockout (ADR-023) + Refresh tokens (ADR-024) — vivem só na Identity.
+      Authentication__Lockout__MaxFailedAttempts: "5"
+      Authentication__Lockout__LockoutDuration: "00:15:00"
+      Authentication__RefreshToken__Lifetime: "7.00:00:00"
+      Authentication__RefreshToken__TokenBytes: "32"
+    ports:
+      - "5000:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - cashflow-net
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Transactions.API — write side. Só valida JWT (não emite).
+  # ─────────────────────────────────────────────────────────────────────────────
   api-transactions:
     build:
       context: .
@@ -63,17 +98,11 @@ services:
       RabbitMq__Host: rabbitmq
       RabbitMq__User: guest
       RabbitMq__Password: guest
-      # JWT — ADR-016. Mesma chave/audience em ambos os APIs.
-      # ⚠️ Em produção: ler de Key Vault, NUNCA do compose.
+      # JWT validation — mesmos valores que Identity para tokens serem válidos aqui.
       Authentication__Jwt__Issuer: cashflow
       Authentication__Jwt__Audience: cashflow-api
       Authentication__Jwt__SecretKey: "demo-only-symmetric-key-min-32-bytes-please-change"
       Authentication__Jwt__TokenExpirationMinutes: "15"
-      # Lockout (ADR-023) + Refresh tokens (ADR-024) — apenas na Transactions API (host do /auth).
-      Authentication__Lockout__MaxFailedAttempts: "5"
-      Authentication__Lockout__LockoutDuration: "00:15:00"
-      Authentication__RefreshToken__Lifetime: "7.00:00:00"
-      Authentication__RefreshToken__TokenBytes: "32"
     ports:
       - "5001:8080"
     depends_on:
@@ -84,6 +113,31 @@ services:
     networks:
       - cashflow-net
 
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Balance.Worker (ADR-026) — consumer. Dono das migrations do schema balance.
+  # Sem porta HTTP exposta. Sobe antes da Balance.API (que depende dele).
+  # ─────────────────────────────────────────────────────────────────────────────
+  balance-worker:
+    build:
+      context: .
+      dockerfile: src/CashFlow.Balance.Worker/Dockerfile
+    container_name: cashflow-balance-worker
+    environment:
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=cashflow;Username=app_balance;Password=balance_pwd;Include Error Detail=true"
+      RabbitMq__Host: rabbitmq
+      RabbitMq__User: guest
+      RabbitMq__Password: guest
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - cashflow-net
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Balance.API — read side puro. Depende do Worker ter criado o schema.
+  # ─────────────────────────────────────────────────────────────────────────────
   api-balance:
     build:
       context: .
@@ -92,10 +146,6 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=cashflow;Username=app_balance;Password=balance_pwd;Include Error Detail=true"
-      RabbitMq__Host: rabbitmq
-      RabbitMq__User: guest
-      RabbitMq__Password: guest
-      # JWT — ADR-015. Mesma chave/audience que Transactions API para que os tokens sejam válidos aqui.
       Authentication__Jwt__Issuer: cashflow
       Authentication__Jwt__Audience: cashflow-api
       Authentication__Jwt__SecretKey: "demo-only-symmetric-key-min-32-bytes-please-change"
@@ -105,6 +155,31 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      balance-worker:
+        condition: service_started
+    networks:
+      - cashflow-net
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Admin.API (ADR-028) — ops da DLQ. Sem Postgres; só RabbitMQ.
+  # ─────────────────────────────────────────────────────────────────────────────
+  admin-api:
+    build:
+      context: .
+      dockerfile: src/CashFlow.Admin.API/Dockerfile
+    container_name: cashflow-admin
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      RabbitMq__Host: rabbitmq
+      RabbitMq__User: guest
+      RabbitMq__Password: guest
+      Authentication__Jwt__Issuer: cashflow
+      Authentication__Jwt__Audience: cashflow-api
+      Authentication__Jwt__SecretKey: "demo-only-symmetric-key-min-32-bytes-please-change"
+      Authentication__Jwt__TokenExpirationMinutes: "15"
+    ports:
+      - "5003:8080"
+    depends_on:
       rabbitmq:
         condition: service_healthy
     networks:

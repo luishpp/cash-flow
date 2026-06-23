@@ -1,19 +1,17 @@
 using System.Threading.RateLimiting;
 using CashFlow.Balance.API.Application.Services;
-using CashFlow.Balance.API.Consumers;
 using CashFlow.Balance.API.Infrastructure.Configuration;
-using CashFlow.Balance.API.Infrastructure.Migrations;
-using CashFlow.Balance.API.Infrastructure.Persistence;
-using CashFlow.Balance.API.Infrastructure.Repositories;
+using CashFlow.Balance.Core.Infrastructure.Persistence;
+using CashFlow.Balance.Core.Infrastructure.Repositories;
 using CashFlow.Shared.Security;
-using MassTransit;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.OpenApi.Models;
-using Polly;
-using Polly.Retry;
 using Serilog;
 
+// Balance.API (ADR-026): read side puro.
+// Consumer + ConsolidationService + ProcessedEventsRepository + Migrations vivem em Balance.Worker.
+// AdminController (DLQ ops) ainda mora aqui — sai em ADR-028 (Admin.API).
 var builder = WebApplication.CreateBuilder(args);
 
 // ---------- Serilog (ADR-013) ----------
@@ -26,9 +24,6 @@ builder.Host.UseSerilog((ctx, lc) => lc
 // ---------- Configuração ----------
 var connectionString = builder.Configuration.GetConnectionString("Postgres")
     ?? throw new InvalidOperationException("ConnectionStrings:Postgres não configurada.");
-var rabbitHost = builder.Configuration.GetValue<string>("RabbitMq:Host") ?? "rabbitmq";
-var rabbitUser = builder.Configuration.GetValue<string>("RabbitMq:User") ?? "guest";
-var rabbitPass = builder.Configuration.GetValue<string>("RabbitMq:Password") ?? "guest";
 
 // ---------- API ----------
 builder.Services.AddControllers();
@@ -56,14 +51,11 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
-// ---------- Security (ADR-015) ----------
+// ---------- Security (ADR-016) ----------
 builder.Services.AddCashFlowAuthentication(builder.Configuration, builder.Environment);
 builder.Services.AddCashFlowAuthorization();
 
 // ---------- Rate Limiting (ADR-006) ----------
-// Configurável via seção `RateLimiting:Balance` em appsettings (ou env vars
-// RateLimiting__Balance__PermitLimit etc.). Seção opcional — sem ela, defaults do
-// RateLimitSettings aplicam. Tweak sem rebuild: editar appsettings + restart.
 var rateLimitSettings = builder.Configuration
     .GetSection(RateLimitSettings.SectionName)
     .Get<RateLimitSettings>() ?? new RateLimitSettings();
@@ -86,83 +78,23 @@ builder.Services.AddRateLimiter(options =>
     };
 });
 
-// ---------- Persistence (ADR-010) ----------
+// ---------- Persistence read-only (ADR-010, ADR-026) ----------
+// Worker é dono do schema; API só lê. Connection string usa o mesmo user app_balance.
 Dapper.SqlMapper.AddTypeHandler(new DateOnlyTypeHandler());
 builder.Services.AddSingleton<IDbConnectionFactory>(_ => new NpgsqlConnectionFactory(connectionString));
 builder.Services.AddScoped<IUnitOfWork, DapperUnitOfWork>();
 builder.Services.AddScoped<IBalanceRepository, BalanceRepository>();
-builder.Services.AddScoped<IProcessedEventsRepository, ProcessedEventsRepository>();
 
 // ---------- Application ----------
 builder.Services.AddScoped<IBalanceQueryService, BalanceQueryService>();
-builder.Services.AddScoped<IConsolidationService, ConsolidationService>();
-builder.Services.AddScoped<CashFlow.Balance.API.Application.Admin.ErrorQueueRedeliveryService>();
-
-// ---------- Polly Retry (ADR-005) ----------
-builder.Services.AddResiliencePipeline("consumer-pipeline", pipeline =>
-{
-    pipeline.AddRetry(new RetryStrategyOptions
-    {
-        MaxRetryAttempts = 3,
-        Delay = TimeSpan.FromSeconds(1),
-        BackoffType = DelayBackoffType.Exponential,
-        UseJitter = true
-    });
-});
-
-// ---------- MassTransit / RabbitMQ + Consumer (ADR-002, ADR-004) ----------
-builder.Services.AddMassTransit(cfg =>
-{
-    cfg.AddConsumer<TransactionConsumer>();
-    cfg.AddDelayedMessageScheduler();   // usa o plugin rabbitmq_delayed_message_exchange
-    cfg.UsingRabbitMq((ctx, rmq) =>
-    {
-        rmq.UseDelayedMessageScheduler();
-        rmq.Host(rabbitHost, "/", h =>
-        {
-            h.Username(rabbitUser);
-            h.Password(rabbitPass);
-        });
-        rmq.ReceiveEndpoint("balance.transaction-registered", ep =>
-        {
-            // FIFO real (ordering): SAC entre réplicas + processamento sequencial em cada uma.
-            // Sem isso, MassTransit dispara em paralelo (PrefetchCount=16, concurrency ilimitada)
-            // e a ordem dos lançamentos pode ser invertida — relevante para batches grandes.
-            ep.SingleActiveConsumer = true;
-            ep.ConcurrentMessageLimit = 1;
-            ep.PrefetchCount = 1;
-
-            // 1º nível: Polly dentro do Consumer (3 tentativas exp backoff até ~3s) — transientes rápidos.
-            // 2º nível: redelivery agendada no broker — janelas maiores cobrem outage de banco/dependência.
-            // Após esgotar todos, mensagem vai para `balance.transaction-registered_error` (DLQ visível).
-            ep.UseDelayedRedelivery(r => r.Intervals(
-                TimeSpan.FromMinutes(1),
-                TimeSpan.FromMinutes(5),
-                TimeSpan.FromMinutes(15)));
-
-            ep.ConfigureConsumer<TransactionConsumer>(ctx);
-        });
-    });
-});
 
 // ---------- Health Checks (ADR-013) ----------
-// Não inclui consumer no /health/ready — falha no consumer não derruba queries.
 builder.Services.AddHealthChecks()
     .AddNpgSql(connectionString, name: "postgres", tags: new[] { "ready" });
 
 var app = builder.Build();
 
-// ---------- Migrations no startup (ADR-010) ----------
-using (var scope = app.Services.CreateScope())
-{
-    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-    MigrationRunner.EnsureUpToDate(connectionString, logger);
-}
-
 // ---------- Pipeline ----------
-// Swagger exposto em todos os ambientes — decisão consciente do MVP: o desafio
-// pressupõe que o avaliador rode `docker compose up` (env Production) e teste via
-// Swagger UI. Em deploy real, gatear com `IsDevelopment()` ou flag de config.
 app.UseSwagger();
 app.UseSwaggerUI();
 app.UseSerilogRequestLogging();

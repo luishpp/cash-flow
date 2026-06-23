@@ -1,6 +1,6 @@
 # ADR-004: Consumer de eventos como HostedService dentro da Balance API
 
-**Status:** Aceita *(revisada — versão anterior previa Worker Service como processo separado)*
+**Status:** **Superseded by [ADR-026](adr-026-balance-worker-extraction.md)** *(2026-06)* — extração para deploy unit dedicado após feedback de entrevista que expôs gap de raciocínio sobre limites arquiteturais (escala/falha/deploy/domínio). A versão "embarcado no MVP" desta ADR continua válida como **registro histórico** do pragmatismo inicial; a defesa pelos 4 limites vive na ADR-026.
 
 ## Contexto
 
