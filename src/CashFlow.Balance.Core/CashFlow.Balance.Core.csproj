@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!--
+    Balance.Core — Shared Kernel intra-BC (ADR-026).
+    Domain (DailyBalance) + Persistence (Dapper UoW, factory) + BalanceRepository.
+    Compartilhado entre Balance.API (read) e Balance.Worker (write).
+    Sem dependência de ASP.NET, MassTransit ou HTTP — só Dapper + Npgsql.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Dapper" Version="2.1.79" />
+    <PackageReference Include="Npgsql" Version="10.0.2" />
+  </ItemGroup>
+
+</Project>

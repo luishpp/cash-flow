@@ -1,36 +1,57 @@
 graph TB
     Comerciante["👤 <b>Comerciante (Carlos)</b>"]
+    Ops["🛠️ <b>Operador (Ops)</b>"]
 
     subgraph Sistema["🏦 Sistema CashFlow"]
-        TransactionsAPI["📦 <b>Transactions API</b><br/>[ASP.NET Core 10 / C#]<br/><i>Write side — registra<br/>débitos e créditos.<br/>Publica eventos.</i>"]
+        IdentityAPI["🔐 <b>Identity API</b><br/>[ASP.NET Core 10]<br/><i>Auth: login, refresh,<br/>logout. Emite JWT.<br/>(ADR-027)</i>"]
 
-        BalanceAPI["📊 <b>Balance API</b><br/>[ASP.NET Core 10 / C#]<br/><i>Read side — expõe saldo<br/>diário. Hospeda<br/>BackgroundService consumer.</i>"]
+        TransactionsAPI["📦 <b>Transactions API</b><br/>[ASP.NET Core 10]<br/><i>Write side — registra<br/>débitos e créditos.<br/>Publica eventos via Outbox.<br/>Valida JWT.</i>"]
 
-        RabbitMQ["📮 <b>RabbitMQ</b><br/>[Broker AMQP]<br/><i>Persiste eventos<br/>TransactionRegistered.</i>"]
+        BalanceAPI["📊 <b>Balance API</b><br/>[ASP.NET Core 10]<br/><i>Read side puro — expõe<br/>GET /balance. Sem broker,<br/>sem migrations.</i>"]
 
-        DBTransactions["🗄️ <b>PostgreSQL — schema 'transactions'</b><br/>[PostgreSQL 16]<br/><i>Persiste transactions.<br/>user: app_transactions<br/>(GRANT restrito)</i>"]
+        BalanceWorker["⚙️ <b>Balance Worker</b><br/>[.NET Worker Service]<br/><i>Consumer + ConsolidationService.<br/>Dono das migrations do<br/>schema balance. (ADR-026)</i>"]
 
-        DBBalance["🗄️ <b>PostgreSQL — schema 'balance'</b><br/>[PostgreSQL 16]<br/><i>Persiste daily_balance<br/>+ processed_events.<br/>user: app_balance<br/>(GRANT restrito)</i>"]
+        AdminAPI["🚨 <b>Admin API</b><br/>[ASP.NET Core 10]<br/><i>Ops da DLQ: count<br/>+ redeliver. Sem Postgres.<br/>(ADR-028)</i>"]
+
+        RabbitMQ["📮 <b>RabbitMQ</b><br/>[Broker AMQP + plugin<br/>delayed-message-exchange]<br/><i>TransactionRegistered<br/>+ DLQ visível</i>"]
+
+        DBIdentity["🗄️ <b>Postgres — schema 'identity'</b><br/>[PostgreSQL 16]<br/><i>app_users + refresh_tokens.<br/>user: app_identity<br/>(GRANT restrito)</i>"]
+
+        DBTransactions["🗄️ <b>Postgres — schema 'transactions'</b><br/>[PostgreSQL 16]<br/><i>transactions + outbox_events.<br/>user: app_transactions<br/>(GRANT restrito)</i>"]
+
+        DBBalance["🗄️ <b>Postgres — schema 'balance'</b><br/>[PostgreSQL 16]<br/><i>daily_balance + processed_events.<br/>user: app_balance<br/>(GRANT restrito)</i>"]
     end
 
-    Comerciante -->|"POST /api/v1/transactions<br/>GET /api/v1/transactions/{id}<br/>(HTTPS/JSON)"| TransactionsAPI
-    Comerciante -->|"GET /api/v1/balance/{date}<br/>GET /api/v1/balance?from=&to=<br/>(HTTPS/JSON)"| BalanceAPI
+    Comerciante -->|"POST /api/v1/auth/login<br/>POST /api/v1/auth/refresh<br/>POST /api/v1/auth/logout<br/>(HTTPS/JSON)"| IdentityAPI
+    Comerciante -->|"POST /api/v1/transactions<br/>Bearer JWT<br/>(HTTPS/JSON)"| TransactionsAPI
+    Comerciante -->|"GET /api/v1/balance/{date}<br/>Bearer JWT<br/>(HTTPS/JSON)"| BalanceAPI
+    Ops -->|"GET /api/v1/admin/errors/count<br/>POST /api/v1/admin/errors/redeliver<br/>Bearer JWT (ADR-028 → RequireAdmin)"| AdminAPI
 
-    TransactionsAPI -->|"INSERT transaction<br/>(Dapper, transação)"| DBTransactions
-    TransactionsAPI -->|"Publica<br/>TransactionRegistered<br/>(AMQP)"| RabbitMQ
+    IdentityAPI -->|"SELECT/INSERT/UPDATE<br/>app_users, refresh_tokens<br/>(Dapper UoW)"| DBIdentity
+    TransactionsAPI -->|"INSERT transaction + outbox<br/>(Dapper UoW atômica)"| DBTransactions
+    TransactionsAPI -.->|"OutboxDispatcher<br/>publica TransactionRegistered<br/>(AMQP)"| RabbitMQ
 
-    RabbitMQ -->|"Consume<br/>TransactionRegistered<br/>(AMQP, at-least-once,<br/>queue: balance.transaction-registered)"| BalanceAPI
-    BalanceAPI -->|"UPSERT daily_balance<br/>INSERT processed_events<br/>(Dapper, transação atômica)"| DBBalance
-    BalanceAPI -->|"SELECT daily_balance<br/>(Dapper, O(1) por date)"| DBBalance
+    RabbitMQ -->|"Consume TransactionRegistered<br/>(AMQP, at-least-once,<br/>SAC + PrefetchCount=1)"| BalanceWorker
+    BalanceWorker -->|"UPSERT daily_balance<br/>+ INSERT processed_events<br/>(Dapper, transação atômica)"| DBBalance
+    BalanceWorker -.->|"DLQ: balance.transaction-registered_error<br/>(após esgotar retries)"| RabbitMQ
+
+    BalanceAPI -->|"SELECT daily_balance<br/>(read-only)"| DBBalance
+    AdminAPI -->|"BasicGet + BasicPublish<br/>(RabbitMQ.Client direto)"| RabbitMQ
 
     classDef person fill:#08427b,stroke:#052e56,color:#fff
+    classDef identity fill:#c62828,stroke:#8e0000,color:#fff
     classDef writeContainer fill:#1168bd,stroke:#0b4884,color:#fff
     classDef readContainer fill:#2e7d32,stroke:#1b5e20,color:#fff
+    classDef worker fill:#5e35b1,stroke:#311b92,color:#fff
+    classDef admin fill:#ef6c00,stroke:#b53d00,color:#fff
     classDef infraContainer fill:#f57c00,stroke:#bf5f00,color:#fff
     classDef dataContainer fill:#6a1b9a,stroke:#4a148c,color:#fff
 
-    class Comerciante person
+    class Comerciante,Ops person
+    class IdentityAPI identity
     class TransactionsAPI writeContainer
     class BalanceAPI readContainer
+    class BalanceWorker worker
+    class AdminAPI admin
     class RabbitMQ infraContainer
-    class DBTransactions,DBBalance dataContainer
+    class DBIdentity,DBTransactions,DBBalance dataContainer

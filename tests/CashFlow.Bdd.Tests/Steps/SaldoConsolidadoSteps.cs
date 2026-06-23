@@ -1,6 +1,6 @@
 using System.Globalization;
-using CashFlow.Balance.API.Domain.Entities;
-using CashFlow.Balance.API.Domain.Exceptions;
+using CashFlow.Balance.Core.Domain.Entities;
+using CashFlow.Balance.Core.Domain.Exceptions;
 using FluentAssertions;
 using Reqnroll;
 

@@ -28,7 +28,9 @@ public sealed class AutenticacaoE2ESteps
         string RefreshToken,
         DateTimeOffset RefreshTokenExpiresAtUtc);
 
-    private static HttpClient Client => CashFlowApiFixture.Client;
+    // Pós-ADR-027: cada step pega o cliente correto via roteamento por URL prefix.
+    // /api/v1/auth/* → IdentityClient ; demais → TransactionsClient.
+    private static HttpClient ClientFor(string url) => CashFlowApiFixture.ClientFor(url);
 
     // ──────────────────────────────────────────────────────────────────────────
     // GIVEN
@@ -37,7 +39,8 @@ public sealed class AutenticacaoE2ESteps
     [Given("que estou autenticado com credenciais demo válidas")]
     public async Task DadoAutenticadoComCredenciaisDemo()
     {
-        var resp = await Client.PostAsJsonAsync("/api/v1/auth/login", new
+        var url = "/api/v1/auth/login";
+        var resp = await ClientFor(url).PostAsJsonAsync(url, new
         {
             username = CashFlowApiFixture.DemoUsername,
             password = CashFlowApiFixture.DemoPassword
@@ -54,7 +57,8 @@ public sealed class AutenticacaoE2ESteps
     {
         _currentRefreshToken.Should().NotBeNullOrWhiteSpace("scenario depende do passo Dado anterior");
 
-        var resp = await Client.PostAsJsonAsync("/api/v1/auth/refresh",
+        var url = "/api/v1/auth/refresh";
+        var resp = await ClientFor(url).PostAsJsonAsync(url,
             new { refreshToken = _currentRefreshToken });
         resp.StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -70,7 +74,7 @@ public sealed class AutenticacaoE2ESteps
     [When("faço POST em {string} com credenciais demo válidas")]
     public async Task QuandoLoginCredenciaisDemo(string url)
     {
-        _response = await Client.PostAsJsonAsync(url, new
+        _response = await ClientFor(url).PostAsJsonAsync(url, new
         {
             username = CashFlowApiFixture.DemoUsername,
             password = CashFlowApiFixture.DemoPassword
@@ -81,15 +85,16 @@ public sealed class AutenticacaoE2ESteps
     [When("faço POST em {string} com username {string} e password {string}")]
     public async Task QuandoLoginCustom(string url, string username, string password)
     {
-        _response = await Client.PostAsJsonAsync(url, new { username, password });
+        _response = await ClientFor(url).PostAsJsonAsync(url, new { username, password });
     }
 
     [When("faço {int} tentativas de login com password {string}")]
     public async Task QuandoNTentativasComSenhaErrada(int n, string password)
     {
+        var url = "/api/v1/auth/login";
         for (var i = 0; i < n; i++)
         {
-            _response = await Client.PostAsJsonAsync("/api/v1/auth/login", new
+            _response = await ClientFor(url).PostAsJsonAsync(url, new
             {
                 username = CashFlowApiFixture.DemoUsername,
                 password
@@ -106,7 +111,7 @@ public sealed class AutenticacaoE2ESteps
         {
             Content = JsonContent.Create(BuildTransactionPayload(valor))
         };
-        _response = await Client.SendAsync(request);
+        _response = await ClientFor(url).SendAsync(request);
     }
 
     [When("faço POST em {string} com token e payload de crédito de {decimal}")]
@@ -119,7 +124,7 @@ public sealed class AutenticacaoE2ESteps
             Content = JsonContent.Create(BuildTransactionPayload(valor))
         };
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _accessToken);
-        _response = await Client.SendAsync(request);
+        _response = await ClientFor(url).SendAsync(request);
         await CaptureJsonAsync();
     }
 
@@ -127,7 +132,7 @@ public sealed class AutenticacaoE2ESteps
     public async Task QuandoPostComRefreshAtual(string url)
     {
         _currentRefreshToken.Should().NotBeNullOrWhiteSpace();
-        _response = await Client.PostAsJsonAsync(url, new { refreshToken = _currentRefreshToken });
+        _response = await ClientFor(url).PostAsJsonAsync(url, new { refreshToken = _currentRefreshToken });
         await CaptureJsonAsync();
     }
 
@@ -136,7 +141,7 @@ public sealed class AutenticacaoE2ESteps
     {
         _previousRefreshToken.Should().NotBeNullOrWhiteSpace(
             "o cenário precisa ter rotacionado o token antes");
-        _response = await Client.PostAsJsonAsync(url, new { refreshToken = _previousRefreshToken });
+        _response = await ClientFor(url).PostAsJsonAsync(url, new { refreshToken = _previousRefreshToken });
         await CaptureJsonAsync();
     }
 

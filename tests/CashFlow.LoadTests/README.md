@@ -9,23 +9,25 @@ Decisão arquitetural: [ADR-019](../../docs/adrs/adr-019-load-test-nbomber.md).
 ## Pré-requisitos
 
 - Docker Desktop rodando.
-- Portas `5001`, `5002`, `5432`, `5672`, `15672` livres.
+- Portas `5000`, `5001`, `5002`, `5003`, `5432`, `5672`, `15672` livres.
 - .NET 10 SDK instalado (para `dotnet run`).
+
+> **Topologia pós-ADR-027:** 5 serviços CashFlow no compose (identity, transactions, balance.api, balance.worker, admin) + Postgres + RabbitMQ. O load test bate em **Balance.API (5002)** para `GET /balance`, autenticando primeiro via **Identity.API (5000)** para `POST /auth/login`. Espelha a topologia distribuída real — não é um único processo monolítico.
 
 ## Como rodar
 
 ```bash
-# 1. Subir a stack
+# 1. Subir a stack (5 serviços + Postgres + RabbitMQ)
 docker compose up --build -d
 
-# 2. Aguardar healthchecks (~10s)
-docker compose ps   # confirmar que api-transactions e api-balance estão Up
+# 2. Aguardar healthchecks (~15s — build inicial pode demorar 2-5min)
+docker compose ps   # confirmar identity-api, balance-worker, api-balance, api-transactions Up
 
-# 3. Rodar o teste de carga
+# 3. Rodar o teste de carga (auto-login em Identity:5000, GET em Balance:5002)
 dotnet run --project tests/CashFlow.LoadTests --configuration Release
 ```
 
-O programa tenta **auto-login** com as credenciais demo (`carlos` / `S3cret!ChangeMe`). Se precisar de outro usuário, exporte o token:
+O programa tenta **auto-login em Identity.API** com as credenciais demo (`carlos` / `S3cret!ChangeMe`). Se precisar de outro usuário, exporte o token:
 
 ```bash
 # bash / zsh

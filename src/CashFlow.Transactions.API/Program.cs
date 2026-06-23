@@ -1,9 +1,7 @@
 using CashFlow.Shared.Security;
-using CashFlow.Transactions.API.Application.Auth;
 using CashFlow.Transactions.API.Application.Services;
 using CashFlow.Transactions.API.Application.Validators;
 using CashFlow.Transactions.API.Domain.Exceptions;
-using CashFlow.Transactions.API.Infrastructure.Auth;
 using CashFlow.Transactions.API.Infrastructure.Messaging;
 using CashFlow.Transactions.API.Infrastructure.Migrations;
 using CashFlow.Transactions.API.Infrastructure.Outbox;
@@ -17,10 +15,10 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.OpenApi.Models;
 using Serilog;
 
+// Transactions.API (após ADR-027): write side puro do BC Transactions.
+// Auth foi extraída para Identity.API (ADR-027). Esta API só VALIDA JWT (issued por Identity).
 var builder = WebApplication.CreateBuilder(args);
 
-// "Testing" é usado pelo CashFlow.Bdd.Tests (WebApplicationFactory) — ver ADR-022.
-// Quando ativo: skip MassTransit/RabbitMQ + skip migrations no startup (testes controlam).
 var isTesting = builder.Environment.IsEnvironment("Testing");
 
 // ---------- Serilog (ADR-013) ----------
@@ -50,13 +48,12 @@ builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "CashFlow.Transactions.API", Version = "v1" });
 
-    // Botão "Authorize" no Swagger UI — UX importa para o avaliador.
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Name = "Authorization",
         Type = SecuritySchemeType.ApiKey,
         In = ParameterLocation.Header,
-        Description = "Cole o valor completo do header: Bearer <jwt>. Obtenha o JWT em POST /api/v1/auth/login."
+        Description = "Cole o valor completo do header: Bearer <jwt>. Obtenha o JWT em POST /api/v1/auth/login (na Identity API)."
     });
     c.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
@@ -74,22 +71,17 @@ builder.Services.AddSwaggerGen(c =>
 builder.Services.AddFluentValidationAutoValidation();
 builder.Services.AddValidatorsFromAssemblyContaining<RegisterTransactionValidator>();
 
-// ---------- Security (ADR-016, ADR-021, ADR-023, ADR-024) ----------
+// ---------- Security (ADR-016) ----------
+// Transactions.API só VALIDA JWT (issued pela Identity.API — ADR-027).
+// Mesma SecretKey/Issuer/Audience compartilhada via env vars.
 builder.Services.AddCashFlowAuthentication(builder.Configuration, builder.Environment);
 builder.Services.AddCashFlowAuthorization();
-builder.Services.Configure<LockoutSettings>(builder.Configuration.GetSection(LockoutSettings.SectionName));
-builder.Services.Configure<RefreshTokenSettings>(builder.Configuration.GetSection(RefreshTokenSettings.SectionName));
-builder.Services.AddSingleton<IPasswordHasher, Argon2idPasswordHasher>();
-builder.Services.AddSingleton<IRefreshTokenFactory, Sha256RefreshTokenFactory>();
-builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
 
 // ---------- Persistence (Dapper + UoW) (ADR-010) ----------
 Dapper.SqlMapper.AddTypeHandler(new DateOnlyTypeHandler());
 builder.Services.AddSingleton<IDbConnectionFactory>(_ => new NpgsqlConnectionFactory(connectionString));
 builder.Services.AddScoped<IUnitOfWork, DapperUnitOfWork>();
 builder.Services.AddScoped<ITransactionRepository, TransactionRepository>();
-builder.Services.AddScoped<IAppUserRepository, AppUserRepository>();
-builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 
 // ---------- Application ----------
 builder.Services.AddScoped<ITransactionService, TransactionService>();
@@ -117,8 +109,6 @@ if (!isTesting)
 }
 else
 {
-    // ADR-022: BDD E2E não usa broker — IEventPublisher fica como no-op.
-    // Testes que precisam observar publicação podem sobrescrever via ConfigureTestServices.
     builder.Services.AddSingleton<IEventPublisher, NoOpEventPublisher>();
 }
 
@@ -128,25 +118,21 @@ builder.Services.AddHealthChecks()
 
 var app = builder.Build();
 
-// ---------- Migrations + Seed demo (ADR-010, ADR-021) ----------
+// ---------- Migrations (ADR-010) ----------
+// DemoUserSeeder foi pra Identity.API junto com /auth — ADR-027.
 if (!isTesting)
 {
     using var scope = app.Services.CreateScope();
     var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
     MigrationRunner.EnsureUpToDate(connectionString, logger);
-    await DemoUserSeeder.EnsureSeededAsync(app.Services, logger);
 }
 
 // ---------- Pipeline ----------
-// Swagger exposto em todos os ambientes — decisão consciente do MVP: o desafio
-// pressupõe que o avaliador rode `docker compose up` (env Production) e teste via
-// Swagger UI. Em deploy real, gatear com `IsDevelopment()` ou flag de config.
 app.UseSwagger();
 app.UseSwaggerUI();
 
 app.UseSerilogRequestLogging();
 
-// Tradução de DomainException → HTTP 422
 app.Use(async (ctx, next) =>
 {
     try { await next(); }

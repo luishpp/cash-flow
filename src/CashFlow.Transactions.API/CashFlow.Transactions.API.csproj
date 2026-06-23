@@ -6,17 +6,19 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <!--
+    Transactions.API (após ADR-027):
+      - Sem Konscious.Argon2 (Identity.API agora cuida do hashing)
+      - Polly e Rabbitmq.HealthChecks já não tinham uso direto aqui — removidos.
+  -->
   <ItemGroup>
     <PackageReference Include="AspNetCore.HealthChecks.NpgSql" Version="9.0.0" />
-    <PackageReference Include="AspNetCore.HealthChecks.Rabbitmq" Version="9.0.0" />
     <PackageReference Include="Dapper" Version="2.1.79" />
     <PackageReference Include="dbup-postgresql" Version="7.0.1" />
     <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.1" />
-    <PackageReference Include="Konscious.Security.Cryptography.Argon2" Version="1.3.1" />
     <PackageReference Include="MassTransit" Version="8.5.2" />
     <PackageReference Include="MassTransit.RabbitMQ" Version="8.5.2" />
     <PackageReference Include="Npgsql" Version="10.0.2" />
-    <PackageReference Include="Polly" Version="8.6.6" />
     <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
   </ItemGroup>

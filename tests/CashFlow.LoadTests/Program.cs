@@ -12,17 +12,22 @@ namespace CashFlow.LoadTests;
 /// Executa GET /api/v1/balance/{date} contra a Balance API rodando em http://localhost:5002
 /// por 60s a 50 req/s (3.000 requisições no total). Sucesso = HTTP 200 + ≥95% de aprovação.
 ///
+/// **Pós-ADR-027:** autenticação foi extraída para Identity.API (porta 5000). Este programa
+/// faz auto-login lá; a Balance.API (5002) só valida o JWT recebido. O teste exercita
+/// dois serviços distintos — espelha topologia distribuída real.
+///
 /// Pré-requisitos:
 ///   1. docker compose up --build -d
-///   2. Aguardar healthchecks (~10s)
-///   3. POST /api/v1/auth/login na Transactions API (5001) para obter o JWT bearer
-///   4. Exportar: $env:CASHFLOW_TOKEN = "eyJ..." (PowerShell) ou export CASHFLOW_TOKEN=... (bash)
+///   2. Aguardar healthchecks (~15s — 5 serviços CashFlow + Postgres + RabbitMQ)
+///   3. POST /api/v1/auth/login em Identity API (5000) para obter o JWT bearer
+///   4. (Opcional) Exportar: $env:CASHFLOW_TOKEN = "eyJ..." (PowerShell) ou
+///                          export CASHFLOW_TOKEN=... (bash)
 ///   5. dotnet run --project tests/CashFlow.LoadTests --configuration Release
 /// </summary>
 public static class Program
 {
     private const string BalanceApiBaseUrl = "http://localhost:5002";
-    private const string TransactionsApiBaseUrl = "http://localhost:5001";
+    private const string IdentityApiBaseUrl = "http://localhost:5000";   // ADR-027
     private const int TargetRatePerSecond = 50;
     private const int RampUpSeconds = 10;
     private const int SustainSeconds = 60;
@@ -38,7 +43,7 @@ public static class Program
             Console.Error.WriteLine(
                 "ERRO: CASHFLOW_TOKEN não definido e auto-login falhou. " +
                 "Suba os serviços (docker compose up) e/ou faça login manualmente em " +
-                $"{TransactionsApiBaseUrl}/api/v1/auth/login.");
+                $"{IdentityApiBaseUrl}/api/v1/auth/login (Identity API — ADR-027).");
             return 1;
         }
 
@@ -95,8 +100,9 @@ public static class Program
     }
 
     /// <summary>
-    /// Tenta login com as credenciais demo de appsettings (carlos / S3cret!ChangeMe).
-    /// Se falhar (stack não está de pé, credenciais mudaram), retorna null.
+    /// Tenta login na Identity.API (ADR-027) com as credenciais demo do appsettings
+    /// (carlos / S3cret!ChangeMe). Se falhar (stack não está de pé, credenciais mudaram),
+    /// retorna null.
     /// </summary>
     private static async Task<string?> TryAutoLoginAsync()
     {
@@ -104,7 +110,7 @@ public static class Program
         {
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
             var resp = await http.PostAsJsonAsync(
-                $"{TransactionsApiBaseUrl}/api/v1/auth/login",
+                $"{IdentityApiBaseUrl}/api/v1/auth/login",
                 new { username = "carlos", password = "S3cret!ChangeMe" });
 
             if (!resp.IsSuccessStatusCode) return null;
